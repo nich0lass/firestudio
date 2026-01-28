@@ -283,6 +283,83 @@ export function ProjectsProvider({ children }) {
         }
     }, []);
 
+    // Mark a Google account as needing re-authentication
+    const markNeedsReauth = useCallback((accountId) => {
+        setProjects(prev => prev.map(p => {
+            if (p.id === accountId || p.parentAccountId === accountId) {
+                return { ...p, needsReauth: true };
+            }
+            if (p.type === 'googleAccount' && p.id === accountId) {
+                return {
+                    ...p,
+                    needsReauth: true,
+                    projects: (p.projects || []).map(proj => ({ ...proj, needsReauth: true }))
+                };
+            }
+            return p;
+        }));
+    }, []);
+
+    // Re-authenticate a Google account
+    const reauthenticateAccount = useCallback(async (accountId) => {
+        try {
+            // Trigger new Google sign-in
+            const result = await window.electronAPI?.googleSignIn?.();
+
+            if (!result?.success) {
+                return { success: false, error: result?.error || 'Sign-in failed' };
+            }
+
+            // Update the account with new tokens
+            setProjects(prev => prev.map(p => {
+                if (p.type === 'googleAccount' && p.id === accountId) {
+                    return {
+                        ...p,
+                        accessToken: result.accessToken,
+                        refreshToken: result.refreshToken || p.refreshToken,
+                        needsReauth: false,
+                        email: result.email,
+                        name: result.name,
+                        projects: (p.projects || []).map(proj => ({
+                            ...proj,
+                            accessToken: result.accessToken,
+                            refreshToken: result.refreshToken || proj.refreshToken,
+                            needsReauth: false
+                        }))
+                    };
+                }
+                return p;
+            }));
+
+            // Refresh collections for all projects
+            const account = projects.find(p => p.id === accountId);
+            if (account?.projects) {
+                for (const proj of account.projects) {
+                    const collectionsResult = await window.electronAPI?.googleGetCollections?.(proj.projectId);
+                    if (collectionsResult?.success) {
+                        setProjects(prev => prev.map(p => {
+                            if (p.type === 'googleAccount' && p.id === accountId) {
+                                return {
+                                    ...p,
+                                    projects: p.projects.map(pr =>
+                                        pr.projectId === proj.projectId
+                                            ? { ...pr, collections: collectionsResult.collections }
+                                            : pr
+                                    )
+                                };
+                            }
+                            return p;
+                        }));
+                    }
+                }
+            }
+
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }, [projects]);
+
     return (
         <ProjectsContext.Provider value={{
             projects,
@@ -292,6 +369,8 @@ export function ProjectsProvider({ children }) {
             updateProject,
             clearProjects,
             reconnectGoogleProject,
+            markNeedsReauth,
+            reauthenticateAccount,
             isLoading
         }}>
             {children}

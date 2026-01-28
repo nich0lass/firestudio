@@ -10,6 +10,8 @@ import {
     ListItemIcon,
     Divider,
     useTheme,
+    Button,
+    CircularProgress,
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -31,7 +33,9 @@ import {
     AccountCircle as AccountIcon,
     Logout as LogoutIcon,
     PeopleAlt as AuthIcon,
+    LinkOff as LinkOffIcon,
 } from '@mui/icons-material';
+import { useProjects } from '../context/ProjectsContext';
 
 function ProjectSidebar({
     projects,
@@ -50,10 +54,22 @@ function ProjectSidebar({
 }) {
     const theme = useTheme();
     const isDark = theme.palette.mode === 'dark';
+    const { reauthenticateAccount } = useProjects();
 
     const [expandedItems, setExpandedItems] = useState({});
     const [menuAnchor, setMenuAnchor] = useState(null);
     const [menuTarget, setMenuTarget] = useState(null);
+    const [reconnecting, setReconnecting] = useState(null);
+
+    const handleReconnect = async (accountId, e) => {
+        e?.stopPropagation();
+        setReconnecting(accountId);
+        try {
+            await reauthenticateAccount(accountId);
+        } finally {
+            setReconnecting(null);
+        }
+    };
 
     const toggleExpanded = (itemId) => {
         setExpandedItems(prev => ({
@@ -155,12 +171,17 @@ function ProjectSidebar({
                                                 <ChevronRightIcon sx={{ fontSize: 18 }} />
                                             )}
                                         </IconButton>
-                                        <GoogleIcon sx={{ fontSize: 16, color: '#4285f4', mr: 0.5 }} />
+                                        <GoogleIcon sx={{ fontSize: 16, color: account.needsReauth ? '#f44336' : '#4285f4', mr: 0.5 }} />
+                                        {account.needsReauth && (
+                                            <Tooltip title="Session expired - reconnect required">
+                                                <LinkOffIcon sx={{ fontSize: 14, color: '#f44336', mr: 0.5 }} />
+                                            </Tooltip>
+                                        )}
                                         <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
                                             <Typography
                                                 sx={{
                                                     fontSize: '0.75rem',
-                                                    color: isDark ? '#ddd' : '#333',
+                                                    color: account.needsReauth ? '#f44336' : (isDark ? '#ddd' : '#333'),
                                                     fontWeight: 500,
                                                     overflow: 'hidden',
                                                     textOverflow: 'ellipsis',
@@ -169,14 +190,37 @@ function ProjectSidebar({
                                             >
                                                 {account.email}
                                             </Typography>
-                                            <Typography
-                                                sx={{
-                                                    fontSize: '0.65rem',
-                                                    color: isDark ? '#888' : '#666',
-                                                }}
-                                            >
-                                                {account.projects?.length || 0} project{account.projects?.length !== 1 ? 's' : ''}
-                                            </Typography>
+                                            {account.needsReauth ? (
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="warning"
+                                                    onClick={(e) => handleReconnect(account.id, e)}
+                                                    disabled={reconnecting === account.id}
+                                                    sx={{
+                                                        fontSize: '0.6rem',
+                                                        py: 0,
+                                                        px: 0.5,
+                                                        minWidth: 'auto',
+                                                        height: 18,
+                                                        textTransform: 'none'
+                                                    }}
+                                                >
+                                                    {reconnecting === account.id ? (
+                                                        <CircularProgress size={10} sx={{ mr: 0.5 }} />
+                                                    ) : null}
+                                                    Reconnect
+                                                </Button>
+                                            ) : (
+                                                <Typography
+                                                    sx={{
+                                                        fontSize: '0.65rem',
+                                                        color: isDark ? '#888' : '#666',
+                                                    }}
+                                                >
+                                                    {account.projects?.length || 0} project{account.projects?.length !== 1 ? 's' : ''}
+                                                </Typography>
+                                            )}
                                         </Box>
                                         <IconButton
                                             size="small"

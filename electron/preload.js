@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancelGoogleSignIn: () => ipcRenderer.invoke('google:cancelSignIn'),
     googleSignOut: () => ipcRenderer.invoke('google:signOut'),
     googleRefreshToken: (refreshToken) => ipcRenderer.invoke('google:refreshToken', refreshToken),
+    googleSetRefreshToken: (refreshToken) => ipcRenderer.invoke('google:setRefreshToken', refreshToken),
     getUserProjects: () => ipcRenderer.invoke('google:getUserProjects'),
 
     // Google OAuth Firestore operations (REST API)

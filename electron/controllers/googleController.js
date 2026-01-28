@@ -16,13 +16,139 @@ const { convertToFirestoreValue, parseFirestoreDocument } = require('../utils/fi
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID_HERE';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET_HERE';
 
+// Token expiry buffer (refresh 5 minutes before actual expiry)
+const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+
 // State
 let googleAccessToken = null;
 let googleRefreshToken = null;
+let tokenExpiryTime = null; // Track when token expires
 let activeSignInResolve = null;
 
 function getAccessToken() { return googleAccessToken; }
 function setAccessToken(token) { googleAccessToken = token; }
+function getRefreshToken() { return googleRefreshToken; }
+function setRefreshToken(token) { googleRefreshToken = token; }
+
+/**
+ * Check if token is expired or about to expire
+ */
+function isTokenExpired() {
+    if (!tokenExpiryTime) return true;
+    return Date.now() >= (tokenExpiryTime - TOKEN_EXPIRY_BUFFER_MS);
+}
+
+/**
+ * Refresh the access token using refresh token
+ */
+async function refreshAccessToken() {
+    if (!googleRefreshToken) {
+        return { success: false, error: 'No refresh token available', requiresReauth: true };
+    }
+
+    try {
+        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id: GOOGLE_CLIENT_ID,
+                client_secret: GOOGLE_CLIENT_SECRET,
+                refresh_token: googleRefreshToken,
+                grant_type: 'refresh_token'
+            })
+        });
+
+        const tokens = await tokenResponse.json();
+
+        if (tokens.access_token) {
+            googleAccessToken = tokens.access_token;
+            // Set expiry time (tokens.expires_in is in seconds)
+            tokenExpiryTime = Date.now() + (tokens.expires_in * 1000);
+            console.log('[GoogleAuth] Token refreshed successfully, expires at:', new Date(tokenExpiryTime).toISOString());
+            return { success: true, accessToken: tokens.access_token };
+        }
+
+        // Check for invalid_grant error (refresh token is invalid/revoked)
+        if (tokens.error === 'invalid_grant') {
+            console.log('[GoogleAuth] Refresh token is invalid/revoked');
+            googleAccessToken = null;
+            googleRefreshToken = null;
+            tokenExpiryTime = null;
+            return { success: false, error: 'Session expired. Please sign in again.', requiresReauth: true };
+        }
+
+        return { success: false, error: tokens.error_description || 'Failed to refresh token', requiresReauth: true };
+    } catch (error) {
+        console.error('[GoogleAuth] Token refresh error:', error.message);
+        return { success: false, error: error.message, requiresReauth: true };
+    }
+}
+
+/**
+ * Ensure we have a valid access token, refreshing if necessary
+ */
+async function ensureValidToken() {
+    if (!googleAccessToken) {
+        return { success: false, error: 'Not signed in', requiresReauth: true };
+    }
+
+    if (isTokenExpired()) {
+        console.log('[GoogleAuth] Token expired or about to expire, refreshing...');
+        return await refreshAccessToken();
+    }
+
+    return { success: true, accessToken: googleAccessToken };
+}
+
+/**
+ * Make an authenticated API call with automatic token refresh
+ */
+async function authenticatedFetch(url, options = {}) {
+    // First, ensure we have a valid token
+    const tokenResult = await ensureValidToken();
+    if (!tokenResult.success) {
+        return { ok: false, error: tokenResult };
+    }
+
+    // Make the request
+    const headers = {
+        ...options.headers,
+        'Authorization': `Bearer ${googleAccessToken}`
+    };
+
+    const response = await fetch(url, { ...options, headers });
+    const data = await response.json();
+
+    // Check for auth errors ONLY (401 = Unauthorized, not 403 which is permission denied)
+    // Also check for specific auth-related error messages
+    const isAuthError = data.error && (
+        data.error.code === 401 ||
+        data.error.status === 'UNAUTHENTICATED' ||
+        (data.error.message && (
+            data.error.message.includes('Request had invalid authentication credentials') ||
+            data.error.message.includes('The request does not have valid authentication credentials') ||
+            data.error.message.includes('Invalid Credentials') ||
+            data.error.message.includes('Token has been expired or revoked')
+        ))
+    );
+
+    if (isAuthError) {
+        console.log('[GoogleAuth] API returned auth error:', data.error.message || data.error.code);
+
+        // Try to refresh token
+        const refreshResult = await refreshAccessToken();
+        if (!refreshResult.success) {
+            return { ok: false, error: refreshResult };
+        }
+
+        // Retry the request with new token
+        headers['Authorization'] = `Bearer ${googleAccessToken}`;
+        const retryResponse = await fetch(url, { ...options, headers });
+        return { ok: true, response: retryResponse, data: await retryResponse.json() };
+    }
+
+    return { ok: true, response, data };
+}
 
 /**
  * Finds an available port starting from the given port
@@ -35,7 +161,6 @@ function findAvailablePort(startPort = 8085) {
             server.close(() => resolve(port));
         });
         server.on('error', () => {
-            // Port in use, try next one
             findAvailablePort(startPort + 1).then(resolve).catch(reject);
         });
     });
@@ -48,7 +173,6 @@ function registerHandlers() {
     // Sign In
     ipcMain.handle('google:signIn', async () => {
         try {
-            // Find an available port dynamically
             const port = await findAvailablePort(8085);
             const redirectUri = `http://localhost:${port}/callback`;
 
@@ -107,13 +231,23 @@ function registerHandlers() {
                                 if (tokens.access_token) {
                                     googleAccessToken = tokens.access_token;
                                     if (tokens.refresh_token) googleRefreshToken = tokens.refresh_token;
+                                    // Set token expiry time
+                                    tokenExpiryTime = Date.now() + (tokens.expires_in * 1000);
+                                    console.log('[GoogleAuth] Signed in, token expires at:', new Date(tokenExpiryTime).toISOString());
 
                                     const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
                                         headers: { Authorization: `Bearer ${tokens.access_token}` }
                                     });
                                     const userInfo = await userResponse.json();
 
-                                    resolve({ success: true, accessToken: tokens.access_token, refreshToken: tokens.refresh_token || null, email: userInfo.email, name: userInfo.name });
+                                    resolve({
+                                        success: true,
+                                        accessToken: tokens.access_token,
+                                        refreshToken: tokens.refresh_token || null,
+                                        expiresIn: tokens.expires_in,
+                                        email: userInfo.email,
+                                        name: userInfo.name
+                                    });
                                 } else {
                                     resolve({ success: false, error: tokens.error_description || 'Failed to get access token' });
                                 }
@@ -142,43 +276,72 @@ function registerHandlers() {
         return { success: false, error: 'No sign-in in progress' };
     });
 
-    ipcMain.handle('google:signOut', async () => { googleAccessToken = null; googleRefreshToken = null; return { success: true }; });
+    ipcMain.handle('google:signOut', async () => {
+        googleAccessToken = null;
+        googleRefreshToken = null;
+        tokenExpiryTime = null;
+        return { success: true };
+    });
+
+    // Set refresh token (called from frontend on app start to restore session)
+    ipcMain.handle('google:setRefreshToken', async (event, refreshToken) => {
+        if (refreshToken) {
+            googleRefreshToken = refreshToken;
+            // Immediately try to refresh to get a new access token
+            const result = await refreshAccessToken();
+            if (result.success) {
+                const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                    headers: { Authorization: `Bearer ${googleAccessToken}` }
+                });
+                const userInfo = await userResponse.json();
+                return { success: true, accessToken: result.accessToken, email: userInfo.email, name: userInfo.name };
+            }
+            return result;
+        }
+        return { success: false, error: 'No refresh token provided' };
+    });
 
     ipcMain.handle('google:refreshToken', async (event, refreshToken) => {
         try {
-            if (!refreshToken) return { success: false, error: 'No refresh token' };
-            const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, refresh_token: refreshToken, grant_type: 'refresh_token' })
-            });
-            const tokens = await tokenResponse.json();
-            if (tokens.access_token) {
-                googleAccessToken = tokens.access_token;
-                googleRefreshToken = refreshToken;
-                const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: `Bearer ${tokens.access_token}` } });
-                const userInfo = await userResponse.json();
-                return { success: true, accessToken: tokens.access_token, email: userInfo.email, name: userInfo.name };
+            if (!refreshToken && !googleRefreshToken) {
+                return { success: false, error: 'No refresh token', requiresReauth: true };
             }
-            return { success: false, error: tokens.error_description || 'Failed to refresh' };
-        } catch (error) { return { success: false, error: error.message }; }
+
+            if (refreshToken) googleRefreshToken = refreshToken;
+
+            const result = await refreshAccessToken();
+            if (!result.success) return result;
+
+            const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                headers: { Authorization: `Bearer ${googleAccessToken}` }
+            });
+            const userInfo = await userResponse.json();
+            return { success: true, accessToken: result.accessToken, email: userInfo.email, name: userInfo.name };
+        } catch (error) {
+            return { success: false, error: error.message, requiresReauth: true };
+        }
     });
 
     ipcMain.handle('google:getUserProjects', async () => {
         try {
-            if (!googleAccessToken) return { success: false, error: 'Not signed in' };
-            const response = await fetch('https://firebase.googleapis.com/v1beta1/projects', { headers: { Authorization: `Bearer ${googleAccessToken}` } });
-            const data = await response.json();
+            const result = await authenticatedFetch('https://firebase.googleapis.com/v1beta1/projects');
+            if (!result.ok) return result.error;
+
+            const data = result.data;
+            if (data.error) return { success: false, error: data.error.message, requiresReauth: data.error.code === 401 };
+
             if (data.results) {
                 const projects = [];
                 for (const p of data.results) {
                     let collections = [];
                     try {
-                        const collectionsResponse = await fetch(`https://firestore.googleapis.com/v1/projects/${p.projectId}/databases/(default)/documents:listCollectionIds`, {
-                            method: 'POST', headers: { 'Authorization': `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({})
-                        });
-                        const collectionsData = await collectionsResponse.json();
-                        if (collectionsData.collectionIds) collections = collectionsData.collectionIds;
+                        const colResult = await authenticatedFetch(
+                            `https://firestore.googleapis.com/v1/projects/${p.projectId}/databases/(default)/documents:listCollectionIds`,
+                            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }
+                        );
+                        if (colResult.ok && colResult.data.collectionIds) {
+                            collections = colResult.data.collectionIds;
+                        }
                     } catch (e) { }
                     projects.push({ projectId: p.projectId, displayName: p.displayName || p.projectId, collections });
                 }
@@ -190,24 +353,28 @@ function registerHandlers() {
 
     ipcMain.handle('google:getCollections', async (event, projectId) => {
         try {
-            if (!googleAccessToken) return { success: false, error: 'Not signed in' };
-            const response = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:listCollectionIds`, {
-                method: 'POST', headers: { 'Authorization': `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({})
-            });
-            const data = await response.json();
-            if (data.error) return { success: false, error: data.error.message };
+            const result = await authenticatedFetch(
+                `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:listCollectionIds`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }
+            );
+            if (!result.ok) return result.error;
+
+            const data = result.data;
+            if (data.error) return { success: false, error: data.error.message, requiresReauth: data.error.code === 401 };
             return { success: true, collections: data.collectionIds || [] };
         } catch (error) { return { success: false, error: error.message }; }
     });
 
     ipcMain.handle('google:getDocuments', async (event, { projectId, collectionPath, limit = 50 }) => {
         try {
-            if (!googleAccessToken) return { success: false, error: 'Not signed in' };
-            const response = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collectionPath}?pageSize=${limit}`, {
-                headers: { 'Authorization': `Bearer ${googleAccessToken}` }
-            });
-            const data = await response.json();
-            if (data.error) return { success: false, error: data.error.message };
+            const result = await authenticatedFetch(
+                `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collectionPath}?pageSize=${limit}`
+            );
+            if (!result.ok) return result.error;
+
+            const data = result.data;
+            if (data.error) return { success: false, error: data.error.message, requiresReauth: data.error.code === 401 };
+
             const documents = (data.documents || []).map(doc => {
                 const pathParts = doc.name.split('/');
                 const docId = pathParts[pathParts.length - 1];
@@ -219,30 +386,34 @@ function registerHandlers() {
 
     ipcMain.handle('google:setDocument', async (event, { projectId, collectionPath, documentId, data }) => {
         try {
-            if (!googleAccessToken) return { success: false, error: 'Not signed in' };
             const fields = {};
             for (const [key, value] of Object.entries(data)) { fields[key] = convertToFirestoreValue(value); }
-            const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collectionPath}/${documentId}`;
-            const response = await fetch(url, {
-                method: 'PATCH', headers: { 'Authorization': `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ fields })
-            });
-            const responseData = await response.json();
-            if (responseData.error) return { success: false, error: responseData.error.message };
+
+            const result = await authenticatedFetch(
+                `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collectionPath}/${documentId}`,
+                { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields }) }
+            );
+            if (!result.ok) return result.error;
+
+            const responseData = result.data;
+            if (responseData.error) return { success: false, error: responseData.error.message, requiresReauth: responseData.error.code === 401 };
             return { success: true };
         } catch (error) { return { success: false, error: error.message }; }
     });
 
     ipcMain.handle('google:executeStructuredQuery', async (event, { projectId, structuredQuery }) => {
         try {
-            if (!googleAccessToken) return { success: false, error: 'Not signed in' };
-            const response = await fetch(`https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`, {
-                method: 'POST', headers: { 'Authorization': `Bearer ${googleAccessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ structuredQuery })
-            });
-            const data = await response.json();
-            if (data.error) return { success: false, error: data.error.message };
+            const result = await authenticatedFetch(
+                `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ structuredQuery }) }
+            );
+            if (!result.ok) return result.error;
+
+            const data = result.data;
+            if (data.error) return { success: false, error: data.error.message, requiresReauth: data.error.code === 401 };
             return { success: true, data };
         } catch (error) { return { success: false, error: error.message }; }
     });
 }
 
-module.exports = { registerHandlers, getAccessToken, setAccessToken };
+module.exports = { registerHandlers, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken };
