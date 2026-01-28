@@ -84,7 +84,7 @@ function ConnectionDialog({ open, onClose, onConnect, onGoogleSignIn, loading })
                             This uses OAuth to securely authenticate without storing credentials.
                         </Typography>
 
-                        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, my: 4 }}>
                             <Button
                                 variant="outlined"
                                 size="large"
@@ -104,6 +104,25 @@ function ConnectionDialog({ open, onClose, onConnect, onGoogleSignIn, loading })
                             >
                                 {loading ? 'Signing in...' : 'Sign in with Google'}
                             </Button>
+                            {loading && (
+                                <Box sx={{ textAlign: 'center' }}>
+                                    <Typography variant="body2" sx={{ color: isDark ? '#aaa' : '#666', mb: 1 }}>
+                                        Complete sign-in in your browser, then return here.
+                                    </Typography>
+                                    <Button
+                                        variant="text"
+                                        size="small"
+                                        onClick={async () => {
+                                            if (window.electronAPI?.cancelGoogleSignIn) {
+                                                await window.electronAPI.cancelGoogleSignIn();
+                                            }
+                                        }}
+                                        sx={{ color: '#f44336' }}
+                                    >
+                                        Cancel Sign-In
+                                    </Button>
+                                </Box>
+                            )}
                         </Box>
 
                         <Box sx={{ p: 2, backgroundColor: isDark ? 'rgba(66, 133, 244, 0.15)' : '#e3f2fd', borderRadius: 1 }}>

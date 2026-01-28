@@ -563,12 +563,12 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID_
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET_HERE';
 let googleAccessToken = null;
 let googleRefreshToken = null;
+let activeSignInServer = null;
+let activeSignInResolve = null;
 
-// Google Sign-In using OAuth
+// Google Sign-In using OAuth - opens in system's default browser
 ipcMain.handle('google:signIn', async (event) => {
     try {
-        const { BrowserWindow } = require('electron');
-
         // Create OAuth URL
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
             `client_id=${GOOGLE_CLIENT_ID}` +
@@ -578,111 +578,216 @@ ipcMain.handle('google:signIn', async (event) => {
             `&access_type=offline` +
             `&prompt=consent`;
 
-        // Create auth window
-        const authWindow = new BrowserWindow({
-            width: 500,
-            height: 700,
-            show: true,
-            title: 'Sign in with Google - Firestudio',
-            icon: path.join(__dirname, '../assets/icon.png'),
-            webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true,
-                javascript: true,
-                webSecurity: true
-            }
-        });
-
         // Start local server to handle callback
         const http = require('http');
 
         return new Promise((resolve, reject) => {
             let resolved = false;
+            let server = null;
 
-            const server = http.createServer(async (req, res) => {
+            // Store resolve function so we can cancel from outside
+            activeSignInResolve = (result) => {
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeout);
+                    try { server?.close(); } catch (e) { }
+                    activeSignInServer = null;
+                    activeSignInResolve = null;
+                    resolve(result);
+                }
+            };
+
+            // Timeout after 5 minutes
+            const timeout = setTimeout(() => {
+                if (!resolved) {
+                    activeSignInResolve({ success: false, error: 'Sign-in timed out', cancelled: true });
+                }
+            }, 5 * 60 * 1000);
+
+            server = http.createServer(async (req, res) => {
                 const url = new URL(req.url, 'http://localhost:8085');
 
-                if (url.pathname === '/callback' && url.searchParams.has('code')) {
-                    const code = url.searchParams.get('code');
+                if (url.pathname === '/callback') {
+                    if (url.searchParams.has('code')) {
+                        const code = url.searchParams.get('code');
 
-                    res.writeHead(200, { 'Content-Type': 'text/html' });
-                    res.end('<html><body><h1>Sign-in successful!</h1><p>You can close this window.</p><script>window.close();</script></body></html>');
+                        // Show success page
+                        res.writeHead(200, { 'Content-Type': 'text/html' });
+                        res.end(`
+                            <html>
+                            <head>
+                                <title>Sign-in Successful - Firestudio</title>
+                                <style>
+                                    body { 
+                                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                        display: flex;
+                                        justify-content: center;
+                                        align-items: center;
+                                        height: 100vh;
+                                        margin: 0;
+                                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                                        color: white;
+                                    }
+                                    .container {
+                                        text-align: center;
+                                        padding: 40px;
+                                        background: rgba(255,255,255,0.1);
+                                        border-radius: 16px;
+                                        backdrop-filter: blur(10px);
+                                    }
+                                    h1 { color: #4caf50; margin-bottom: 10px; }
+                                    p { color: #ccc; }
+                                    .icon { font-size: 64px; margin-bottom: 20px; }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="container">
+                                    <div class="icon">✓</div>
+                                    <h1>Sign-in Successful!</h1>
+                                    <p>You can close this browser tab and return to Firestudio.</p>
+                                </div>
+                            </body>
+                            </html>
+                        `);
 
-                    try {
-                        server.close();
-                    } catch (e) { }
-                    if (!authWindow.isDestroyed()) {
-                        authWindow.close();
-                    }
+                        clearTimeout(timeout);
+                        try { server.close(); } catch (e) { }
 
-                    if (resolved) return;
-                    resolved = true;
+                        if (resolved) return;
+                        resolved = true;
 
-                    try {
-                        // Exchange code for tokens
-                        const fetch = require('node-fetch');
-                        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: new URLSearchParams({
-                                client_id: GOOGLE_CLIENT_ID,
-                                client_secret: GOOGLE_CLIENT_SECRET,
-                                code: code,
-                                grant_type: 'authorization_code',
-                                redirect_uri: 'http://localhost:8085/callback'
-                            })
-                        });
-
-                        const tokens = await tokenResponse.json();
-
-                        if (tokens.access_token) {
-                            googleAccessToken = tokens.access_token;
-                            // Save refresh token if provided
-                            if (tokens.refresh_token) {
-                                googleRefreshToken = tokens.refresh_token;
-                            }
-
-                            // Get user info
-                            const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-                                headers: { Authorization: `Bearer ${tokens.access_token}` }
-                            });
-                            const userInfo = await userResponse.json();
-
-                            resolve({
-                                success: true,
-                                accessToken: tokens.access_token,
-                                refreshToken: tokens.refresh_token || null,
-                                email: userInfo.email,
-                                name: userInfo.name
-                            });
-                        } else {
-                            resolve({ success: false, error: tokens.error_description || 'Failed to get access token' });
+                        // Focus the main Electron window
+                        const mainWindow = BrowserWindow.getAllWindows()[0];
+                        if (mainWindow) {
+                            if (mainWindow.isMinimized()) mainWindow.restore();
+                            mainWindow.focus();
                         }
-                    } catch (err) {
-                        resolve({ success: false, error: err.message });
+
+                        try {
+                            // Exchange code for tokens
+                            const fetch = require('node-fetch');
+                            const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: new URLSearchParams({
+                                    client_id: GOOGLE_CLIENT_ID,
+                                    client_secret: GOOGLE_CLIENT_SECRET,
+                                    code: code,
+                                    grant_type: 'authorization_code',
+                                    redirect_uri: 'http://localhost:8085/callback'
+                                })
+                            });
+
+                            const tokens = await tokenResponse.json();
+
+                            if (tokens.access_token) {
+                                googleAccessToken = tokens.access_token;
+                                if (tokens.refresh_token) {
+                                    googleRefreshToken = tokens.refresh_token;
+                                }
+
+                                // Get user info
+                                const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                                    headers: { Authorization: `Bearer ${tokens.access_token}` }
+                                });
+                                const userInfo = await userResponse.json();
+
+                                resolve({
+                                    success: true,
+                                    accessToken: tokens.access_token,
+                                    refreshToken: tokens.refresh_token || null,
+                                    email: userInfo.email,
+                                    name: userInfo.name
+                                });
+                            } else {
+                                resolve({ success: false, error: tokens.error_description || 'Failed to get access token' });
+                            }
+                        } catch (err) {
+                            resolve({ success: false, error: err.message });
+                        }
+                    } else if (url.searchParams.has('error')) {
+                        // User denied access or error occurred
+                        const error = url.searchParams.get('error');
+                        const errorDescription = url.searchParams.get('error_description') || error;
+
+                        res.writeHead(200, { 'Content-Type': 'text/html' });
+                        res.end(`
+                            <html>
+                            <head>
+                                <title>Sign-in Cancelled - Firestudio</title>
+                                <style>
+                                    body { 
+                                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                        display: flex;
+                                        justify-content: center;
+                                        align-items: center;
+                                        height: 100vh;
+                                        margin: 0;
+                                        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                                        color: white;
+                                    }
+                                    .container {
+                                        text-align: center;
+                                        padding: 40px;
+                                        background: rgba(255,255,255,0.1);
+                                        border-radius: 16px;
+                                    }
+                                    h1 { color: #ff9800; margin-bottom: 10px; }
+                                    p { color: #ccc; }
+                                    .icon { font-size: 64px; margin-bottom: 20px; }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="container">
+                                    <div class="icon">✕</div>
+                                    <h1>Sign-in Cancelled</h1>
+                                    <p>You can close this browser tab and return to Firestudio.</p>
+                                </div>
+                            </body>
+                            </html>
+                        `);
+
+                        clearTimeout(timeout);
+                        try { server.close(); } catch (e) { }
+
+                        if (!resolved) {
+                            resolved = true;
+                            resolve({ success: false, error: errorDescription, cancelled: true });
+                        }
                     }
                 }
             });
 
             server.listen(8085, () => {
-                authWindow.loadURL(authUrl);
+                // Open in system's default browser
+                shell.openExternal(authUrl);
             });
 
-            // Handle user closing the window without completing sign-in
-            authWindow.on('closed', () => {
-                try {
-                    server.close();
-                } catch (e) { }
-
+            // Handle server errors
+            server.on('error', (err) => {
+                clearTimeout(timeout);
                 if (!resolved) {
                     resolved = true;
-                    resolve({ success: false, error: 'Sign-in cancelled', cancelled: true });
+                    if (err.code === 'EADDRINUSE') {
+                        resolve({ success: false, error: 'Port 8085 is already in use. Please close any other applications using this port.' });
+                    } else {
+                        resolve({ success: false, error: err.message });
+                    }
                 }
             });
         });
     } catch (error) {
         return { success: false, error: error.message };
     }
+});
+
+// Cancel Google Sign-In (if in progress)
+ipcMain.handle('google:cancelSignIn', async () => {
+    if (activeSignInResolve) {
+        activeSignInResolve({ success: false, error: 'Sign-in cancelled', cancelled: true });
+        return { success: true };
+    }
+    return { success: false, error: 'No sign-in in progress' };
 });
 
 // Google Sign-Out

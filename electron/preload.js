@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Google Sign-In
     googleSignIn: () => ipcRenderer.invoke('google:signIn'),
+    cancelGoogleSignIn: () => ipcRenderer.invoke('google:cancelSignIn'),
     googleSignOut: () => ipcRenderer.invoke('google:signOut'),
     googleRefreshToken: (refreshToken) => ipcRenderer.invoke('google:refreshToken', refreshToken),
     getUserProjects: () => ipcRenderer.invoke('google:getUserProjects'),
