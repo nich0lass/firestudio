@@ -414,6 +414,24 @@ function registerHandlers() {
             return { success: true, data };
         } catch (error) { return { success: false, error: error.message }; }
     });
+
+    // Delete Document
+    ipcMain.handle('google:deleteDocument', async (event, { projectId, collectionPath, documentId }) => {
+        try {
+            const result = await authenticatedFetch(
+                `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collectionPath}/${documentId}`,
+                { method: 'DELETE' }
+            );
+            if (!result.ok) return result.error;
+
+            const data = result.data;
+            // DELETE returns empty response on success
+            if (data && data.error) {
+                return { success: false, error: data.error.message, requiresReauth: data.error.code === 401 };
+            }
+            return { success: true };
+        } catch (error) { return { success: false, error: error.message }; }
+    });
 }
 
 module.exports = { registerHandlers, getAccessToken, setAccessToken, getRefreshToken, setRefreshToken };

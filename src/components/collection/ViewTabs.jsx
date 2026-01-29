@@ -18,6 +18,7 @@ import {
     FileUpload as ImportIcon,
     Settings as SettingsIcon,
     ViewColumn as ColumnsIcon,
+    Delete as DeleteIcon,
 } from '@mui/icons-material';
 
 function ViewTabs({
@@ -28,6 +29,8 @@ function ViewTabs({
     onExport,
     onImport,
     onAdd,
+    onDelete,
+    onSettings,
     allFields,
     visibleFields,
     hiddenColumns,
@@ -36,6 +39,7 @@ function ViewTabs({
     borderColor,
     textColor,
     mutedColor,
+    selectedRowsCount = 0,
 }) {
     const [columnsMenuAnchor, setColumnsMenuAnchor] = React.useState(null);
     const columnsMenuRef = useRef(null);
@@ -130,11 +134,24 @@ function ViewTabs({
                     )}
                 </Box>
             )}
+            {selectedRowsCount > 0 && (
+                <Tooltip title={`Delete ${selectedRowsCount} selected document${selectedRowsCount > 1 ? 's' : ''}`}>
+                    <Button
+                        size="small"
+                        color="error"
+                        onClick={onDelete}
+                        startIcon={<DeleteIcon sx={{ fontSize: 16 }} />}
+                        sx={{ textTransform: 'none', fontSize: '0.75rem', mr: 1 }}
+                    >
+                        Delete ({selectedRowsCount})
+                    </Button>
+                </Tooltip>
+            )}
             <Tooltip title="Refresh"><IconButton size="small" onClick={onRefresh}><RefreshIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
             <Tooltip title="Export"><IconButton size="small" onClick={onExport}><ExportIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
             <Tooltip title="Import"><IconButton size="small" onClick={onImport}><ImportIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
             <Tooltip title="Add"><IconButton size="small" onClick={onAdd}><AddIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
-            <Tooltip title="Settings"><IconButton size="small"><SettingsIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+            <Tooltip title="Settings"><IconButton size="small" onClick={onSettings}><SettingsIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
         </Box>
     );
 }

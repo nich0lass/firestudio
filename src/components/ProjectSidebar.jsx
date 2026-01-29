@@ -45,6 +45,7 @@ function ProjectSidebar({
     onOpenStorage,
     onOpenAuth,
     onAddProject,
+    onAddCollection,
     onDisconnectProject,
     onDisconnectAccount,
     onRefreshCollections,
@@ -84,8 +85,18 @@ function ProjectSidebar({
         setMenuTarget({ ...target, menuType: type });
     };
 
+    const handleProjectMenu = (e, project) => {
+        e.stopPropagation();
+        setMenuAnchor(e.currentTarget);
+        setMenuTarget({ ...project, menuType: 'googleProject' });
+    };
+
     const handleCloseMenu = () => {
         setMenuAnchor(null);
+    };
+
+    const handleMenuExited = () => {
+        // Clear target only after menu exit animation completes
         setMenuTarget(null);
     };
 
@@ -274,6 +285,13 @@ function ProjectSidebar({
                                                         >
                                                             {project.projectId}
                                                         </Typography>
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={(e) => handleProjectMenu(e, project)}
+                                                            sx={{ p: 0, opacity: 0.5, '&:hover': { opacity: 1 }, color: isDark ? '#aaa' : undefined }}
+                                                        >
+                                                            <MoreVertIcon sx={{ fontSize: 14 }} />
+                                                        </IconButton>
                                                     </Box>
 
                                                     {/* Collections */}
@@ -303,6 +321,28 @@ function ProjectSidebar({
                                                                     No collections
                                                                 </Typography>
                                                             )}
+                                                            {/* Add Collection */}
+                                                            <Box
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    console.log('Add collection clicked for:', project);
+                                                                    onAddCollection?.(project);
+                                                                }}
+                                                                sx={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    px: 1,
+                                                                    py: 0.3,
+                                                                    cursor: 'pointer',
+                                                                    color: '#1976d2',
+                                                                    '&:hover': { backgroundColor: isDark ? '#333' : '#f5f5f5' },
+                                                                }}
+                                                            >
+                                                                <AddIcon sx={{ fontSize: 12, mr: 0.5 }} />
+                                                                <Typography sx={{ fontSize: '0.7rem' }}>
+                                                                    Add collection
+                                                                </Typography>
+                                                            </Box>
                                                             {/* Storage */}
                                                             <Box
                                                                 onClick={() => onOpenStorage?.(project)}
@@ -441,6 +481,29 @@ function ProjectSidebar({
                                                 </Typography>
                                             )}
 
+                                            {/* Add Collection */}
+                                            <Box
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    console.log('Add collection clicked for service account:', project);
+                                                    onAddCollection?.(project);
+                                                }}
+                                                sx={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    px: 1,
+                                                    py: 0.4,
+                                                    cursor: 'pointer',
+                                                    color: '#1976d2',
+                                                    '&:hover': { backgroundColor: isDark ? '#333' : '#f5f5f5' },
+                                                }}
+                                            >
+                                                <AddIcon sx={{ fontSize: 14, mr: 0.5 }} />
+                                                <Typography sx={{ fontSize: '0.75rem' }}>
+                                                    Add collection
+                                                </Typography>
+                                            </Box>
+
                                             {/* Storage */}
                                             <Box
                                                 onClick={() => onOpenStorage?.(project)}
@@ -531,6 +594,7 @@ function ProjectSidebar({
                 anchorEl={menuAnchor}
                 open={Boolean(menuAnchor)}
                 onClose={handleCloseMenu}
+                TransitionProps={{ onExited: handleMenuExited }}
             >
                 {menuTarget?.menuType === 'account' ? (
                     // Google Account menu
@@ -549,11 +613,36 @@ function ProjectSidebar({
                             Sign Out
                         </MenuItem>
                     </>
-                ) : (
-                    // Project menu
+                ) : menuTarget?.menuType === 'googleProject' ? (
+                    // Google OAuth Project menu
                     <>
                         <MenuItem onClick={() => {
-                            onRefreshCollections(menuTarget);
+                            onAddCollection?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><AddIcon fontSize="small" /></ListItemIcon>
+                            Add Collection
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onRefreshCollections?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
+                            Refresh Collections
+                        </MenuItem>
+                    </>
+                ) : (
+                    // Service Account Project menu
+                    <>
+                        <MenuItem onClick={() => {
+                            onAddCollection?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><AddIcon fontSize="small" /></ListItemIcon>
+                            Add Collection
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onRefreshCollections?.(menuTarget);
                             handleCloseMenu();
                         }}>
                             <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
@@ -561,7 +650,7 @@ function ProjectSidebar({
                         </MenuItem>
                         <Divider />
                         <MenuItem onClick={() => {
-                            onDisconnectProject(menuTarget);
+                            onDisconnectProject?.(menuTarget);
                             handleCloseMenu();
                         }} sx={{ color: 'error.main' }}>
                             <ListItemIcon><DeleteIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>

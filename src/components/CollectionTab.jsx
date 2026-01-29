@@ -4,7 +4,19 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Box, Typography, TextField, CircularProgress, useTheme } from '@mui/material';
+import {
+    Box,
+    Typography,
+    TextField,
+    CircularProgress,
+    useTheme,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions,
+    Button
+} from '@mui/material';
 import { Storage as CollectionIcon } from '@mui/icons-material';
 
 // Context
@@ -38,6 +50,7 @@ import {
     JsonView,
     CreateDocumentDialog,
 } from './collection';
+import SettingsDialog from './SettingsDialog';
 
 /**
  * Theme configuration for consistent styling
@@ -109,6 +122,10 @@ function CollectionTab({
     const [hiddenColumns, setHiddenColumns] = useState({});
     const [sortConfig, setSortConfig] = useState(createDefaultSortConfig());
     const [filters, setFilters] = useState([]);
+    const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+    const [selectedRows, setSelectedRows] = useState([]);
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     // Sync query mode with ref for keyboard shortcuts
     useEffect(() => {
@@ -250,6 +267,66 @@ function CollectionTab({
         }
     }, [newDocId, newDocData, createDocument, showMessage]);
 
+    // Delete Selected Documents Handler
+    const handleDeleteSelected = useCallback(async () => {
+        if (selectedRows.length === 0) return;
+
+        setDeleteLoading(true);
+        addLog?.('info', `Deleting ${selectedRows.length} document(s)...`);
+
+        try {
+            let successCount = 0;
+            let failCount = 0;
+
+            for (const docId of selectedRows) {
+                try {
+                    if (project?.authMethod === 'google') {
+                        const result = await window.electronAPI.googleDeleteDocument({
+                            projectId: project.projectId,
+                            collectionPath,
+                            documentId: docId
+                        });
+                        if (result?.success) {
+                            successCount++;
+                        } else {
+                            failCount++;
+                            addLog?.('error', `Failed to delete ${docId}: ${result?.error}`);
+                        }
+                    } else {
+                        const result = await window.electronAPI.deleteDocument({
+                            collectionPath,
+                            documentId: docId
+                        });
+                        if (result?.success) {
+                            successCount++;
+                        } else {
+                            failCount++;
+                            addLog?.('error', `Failed to delete ${docId}: ${result?.error}`);
+                        }
+                    }
+                } catch (error) {
+                    failCount++;
+                    addLog?.('error', `Error deleting ${docId}: ${error.message}`);
+                }
+            }
+
+            if (successCount > 0) {
+                showMessage?.(`Deleted ${successCount} document(s)${failCount > 0 ? `, ${failCount} failed` : ''}`, successCount === selectedRows.length ? 'success' : 'warning');
+            } else {
+                showMessage?.('Failed to delete documents', 'error');
+            }
+
+            // Clear selection and refresh
+            setSelectedRows([]);
+            setDeleteDialogOpen(false);
+            await loadDocuments();
+        } catch (error) {
+            showMessage?.(error.message, 'error');
+        } finally {
+            setDeleteLoading(false);
+        }
+    }, [selectedRows, project, collectionPath, addLog, showMessage, loadDocuments]);
+
     // Type utility wrappers for child components
     const getType = useCallback((value) => getValueType(value), []);
     const formatValue = useCallback((value, type) => formatDisplayValue(value, type), []);
@@ -333,6 +410,8 @@ function CollectionTab({
                 onExport={exportCollection}
                 onImport={importDocuments}
                 onAdd={() => setCreateDialogOpen(true)}
+                onDelete={() => setDeleteDialogOpen(true)}
+                onSettings={() => setSettingsDialogOpen(true)}
                 allFields={allFields}
                 visibleFields={visibleFields}
                 hiddenColumns={hiddenColumns}
@@ -341,6 +420,7 @@ function CollectionTab({
                 borderColor={colors.borderColor}
                 textColor={colors.textColor}
                 mutedColor={colors.mutedColor}
+                selectedRowsCount={selectedRows.length}
             />
 
             {/* Content Area */}
@@ -371,6 +451,8 @@ function CollectionTab({
                                 bgColor={colors.bgColor}
                                 textColor={colors.textColor}
                                 mutedColor={colors.mutedColor}
+                                selectedRows={selectedRows}
+                                setSelectedRows={setSelectedRows}
                             />
                         )}
 
@@ -423,6 +505,57 @@ function CollectionTab({
                 setNewDocData={setNewDocData}
                 onCreate={handleCreateDocument}
             />
+
+            {/* Settings Dialog */}
+            <SettingsDialog
+                open={settingsDialogOpen}
+                onClose={() => setSettingsDialogOpen(false)}
+            />
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog
+                open={deleteDialogOpen}
+                onClose={() => !deleteLoading && setDeleteDialogOpen(false)}
+            >
+                <DialogTitle sx={{ color: 'error.main' }}>
+                    Delete {selectedRows.length} Document{selectedRows.length > 1 ? 's' : ''}?
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        Are you sure you want to delete {selectedRows.length} selected document{selectedRows.length > 1 ? 's' : ''}?
+                        This action cannot be undone.
+                    </DialogContentText>
+                    {selectedRows.length <= 10 && (
+                        <Box sx={{ mt: 2, maxHeight: 200, overflow: 'auto' }}>
+                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                Documents to be deleted:
+                            </Typography>
+                            {selectedRows.map(docId => (
+                                <Typography key={docId} variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                    • {docId}
+                                </Typography>
+                            ))}
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setDeleteDialogOpen(false)}
+                        disabled={deleteLoading}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={handleDeleteSelected}
+                        color="error"
+                        variant="contained"
+                        disabled={deleteLoading}
+                        startIcon={deleteLoading ? <CircularProgress size={16} /> : null}
+                    >
+                        {deleteLoading ? 'Deleting...' : 'Delete'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }

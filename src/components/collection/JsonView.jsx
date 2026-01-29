@@ -1,29 +1,14 @@
 import React from 'react';
-import { Box, Button } from '@mui/material';
-import { Save as SaveIcon } from '@mui/icons-material';
+import { Box } from '@mui/material';
 
 function JsonView({
     jsonEditData,
     setJsonEditData,
-    jsonHasChanges,
     setJsonHasChanges,
-    onSave,
     borderColor,
-    bgColor,
 }) {
     return (
         <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-            <Box sx={{ p: 1, borderBottom: `1px solid ${borderColor}`, display: 'flex', justifyContent: 'flex-end', backgroundColor: bgColor }}>
-                <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={<SaveIcon />}
-                    onClick={onSave}
-                    disabled={!jsonHasChanges}
-                >
-                    Save Changes
-                </Button>
-            </Box>
             <textarea
                 value={jsonEditData}
                 onChange={(e) => { setJsonEditData(e.target.value); setJsonHasChanges(true); }}
@@ -32,6 +17,7 @@ function JsonView({
                     fontFamily: 'monospace',
                     fontSize: '0.8rem',
                     border: 'none',
+                    borderTop: `1px solid ${borderColor}`,
                     outline: 'none',
                     padding: 16,
                     resize: 'none',

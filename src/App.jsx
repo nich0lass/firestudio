@@ -10,6 +10,11 @@ import {
     useTheme,
     CircularProgress,
     LinearProgress,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    TextField,
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -57,6 +62,14 @@ function App() {
     }, []);
     const [favoritesPanelOpen, setFavoritesPanelOpen] = useState(false);
     const [consolePanelOpen, setConsolePanelOpen] = useState(false);
+
+    // Add Collection Dialog state
+    const [addCollectionDialogOpen, setAddCollectionDialogOpen] = useState(false);
+    const [addCollectionProject, setAddCollectionProject] = useState(null);
+    const [newCollectionName, setNewCollectionName] = useState('');
+    const [newDocumentId, setNewDocumentId] = useState('');
+    const [newDocumentData, setNewDocumentData] = useState('{}');
+    const [addCollectionLoading, setAddCollectionLoading] = useState(false);
 
     // Tabs state - multiple open collections
     const [openTabs, setOpenTabs] = useState([]);
@@ -330,24 +343,133 @@ function App() {
         }
     };
 
+    // Open Add Collection dialog
+    const handleAddCollection = (project) => {
+        if (!project) {
+            showMessage('No project selected', 'error');
+            return;
+        }
+        setAddCollectionProject(project);
+        setNewCollectionName('');
+        setNewDocumentId('');
+        setNewDocumentData('{}');
+        setAddCollectionDialogOpen(true);
+    };
+
+    // Create the collection
+    const handleCreateCollection = async () => {
+        if (!addCollectionProject || !newCollectionName.trim()) return;
+
+        const trimmedName = newCollectionName.trim();
+
+        // Validate collection name (no slashes, not starting with underscore)
+        if (trimmedName.includes('/') || trimmedName.startsWith('_')) {
+            showMessage('Invalid collection name. Cannot contain "/" or start with "_"', 'error');
+            return;
+        }
+
+        // Parse document data
+        let data;
+        try {
+            data = JSON.parse(newDocumentData.trim() || '{}');
+        } catch (parseError) {
+            showMessage('Invalid JSON in document data', 'error');
+            return;
+        }
+
+        setAddCollectionLoading(true);
+        addLog('info', `Creating collection "${trimmedName}" in ${addCollectionProject.projectId}...`);
+
+        try {
+            // Use provided document ID or auto-generate one
+            const docId = newDocumentId.trim() || `auto_${Date.now()}`;
+
+            let result;
+            if (addCollectionProject.authMethod === 'google') {
+                result = await window.electronAPI.googleSetDocument({
+                    projectId: addCollectionProject.projectId,
+                    collectionPath: trimmedName,
+                    documentId: docId,
+                    data
+                });
+                if (!result?.success) {
+                    showMessage(`Failed to create collection: ${result?.error || 'Unknown error'}`, 'error');
+                    return;
+                }
+            } else {
+                await window.electronAPI.disconnectFirebase();
+                await window.electronAPI.connectFirebase(addCollectionProject.serviceAccountPath);
+                result = await window.electronAPI.createDocument({
+                    collectionPath: trimmedName,
+                    documentId: docId,
+                    data
+                });
+                if (!result?.success) {
+                    showMessage(`Failed to create collection: ${result?.error || 'Unknown error'}`, 'error');
+                    return;
+                }
+            }
+
+            // Refresh collections to show the new one
+            await handleRefreshCollections(addCollectionProject);
+
+            // Open the new collection
+            handleOpenCollection(addCollectionProject, trimmedName);
+
+            setAddCollectionDialogOpen(false);
+            showMessage(`Created collection "${trimmedName}" with document "${docId}"`, 'success');
+        } catch (error) {
+            showMessage(`Failed to create collection: ${error.message}`, 'error');
+        } finally {
+            setAddCollectionLoading(false);
+        }
+    };
+
     // Refresh collections for a project
     const handleRefreshCollections = async (project) => {
         try {
-            // Switch to this project's connection first
-            if (project.authMethod === 'serviceAccount') {
+            let collections = [];
+
+            if (project.authMethod === 'google') {
+                // For Google OAuth, use googleGetCollections
+                const result = await window.electronAPI.googleGetCollections(project.projectId);
+                if (result.success) {
+                    collections = result.collections;
+                } else {
+                    showMessage(result.error, 'error');
+                    return;
+                }
+            } else {
+                // For service account, switch connection first
                 await window.electronAPI.disconnectFirebase();
                 await window.electronAPI.connectFirebase(project.serviceAccountPath);
+
+                const result = await window.electronAPI.getCollections();
+                if (result.success) {
+                    collections = result.collections;
+                } else {
+                    showMessage(result.error, 'error');
+                    return;
+                }
             }
 
-            const result = await window.electronAPI.getCollections();
-            if (result.success) {
-                setProjects(prev => prev.map(p =>
-                    p.id === project.id
-                        ? { ...p, collections: result.collections }
-                        : p
-                ));
-                addLog('success', `Refreshed collections for ${project.projectId}`);
-            }
+            // Update project collections - handle nested Google account projects
+            setProjects(prev => prev.map(item => {
+                if (item.type === 'googleAccount' && item.projects) {
+                    return {
+                        ...item,
+                        projects: item.projects.map(p =>
+                            p.id === project.id ? { ...p, collections } : p
+                        )
+                    };
+                }
+                if (item.id === project.id) {
+                    return { ...item, collections };
+                }
+                return item;
+            }));
+
+            addLog('success', `Refreshed collections for ${project.projectId}`);
         } catch (error) {
             showMessage(error.message, 'error');
         }
@@ -410,6 +532,7 @@ function App() {
                     onOpenStorage={handleOpenStorage}
                     onOpenAuth={handleOpenAuth}
                     onAddProject={() => setConnectionDialogOpen(true)}
+                    onAddCollection={handleAddCollection}
                     onDisconnectProject={handleDisconnectProject}
                     onDisconnectAccount={handleDisconnectAccount}
                     onRefreshCollections={handleRefreshCollections}
@@ -573,6 +696,79 @@ function App() {
                 projects={projects}
                 addLog={addLog}
             />
+
+            {/* Add Collection Dialog */}
+            <Dialog
+                open={addCollectionDialogOpen}
+                onClose={() => !addCollectionLoading && setAddCollectionDialogOpen(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>
+                    Add Collection
+                    {addCollectionProject && (
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                            Project: {addCollectionProject.projectId}
+                        </Typography>
+                    )}
+                </DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        fullWidth
+                        label="Collection Name"
+                        value={newCollectionName}
+                        onChange={(e) => setNewCollectionName(e.target.value)}
+                        disabled={addCollectionLoading}
+                        placeholder="e.g., users, products, orders"
+                        helperText="Collection names cannot contain '/' or start with '_'"
+                        sx={{ mt: 1 }}
+                    />
+                    <TextField
+                        fullWidth
+                        label="First Document ID (optional)"
+                        value={newDocumentId}
+                        onChange={(e) => setNewDocumentId(e.target.value)}
+                        disabled={addCollectionLoading}
+                        placeholder="Leave empty for auto-generated ID"
+                        helperText="Optional: Specify a custom document ID"
+                        sx={{ mt: 2 }}
+                    />
+                    <TextField
+                        fullWidth
+                        multiline
+                        rows={4}
+                        label="First Document Data"
+                        value={newDocumentData}
+                        onChange={(e) => setNewDocumentData(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.ctrlKey && newCollectionName.trim() && !addCollectionLoading) {
+                                handleCreateCollection();
+                            }
+                        }}
+                        disabled={addCollectionLoading}
+                        placeholder='{"field": "value"}'
+                        helperText="JSON object for the first document (Ctrl+Enter to submit)"
+                        sx={{ mt: 2, '& .MuiInputBase-input': { fontFamily: 'monospace', fontSize: '0.85rem' } }}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setAddCollectionDialogOpen(false)}
+                        disabled={addCollectionLoading}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={handleCreateCollection}
+                        variant="contained"
+                        disabled={!newCollectionName.trim() || addCollectionLoading}
+                        startIcon={addCollectionLoading ? <CircularProgress size={16} /> : <AddIcon />}
+                    >
+                        {addCollectionLoading ? 'Creating...' : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {/* Snackbar */}
             <Snackbar

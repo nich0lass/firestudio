@@ -180,25 +180,46 @@ export const useCollectionData = (project, collectionPath, options = {}) => {
      */
     const createDocument = useCallback(async (documentId, data) => {
         try {
-            const result = await window.electronAPI.createDocument({
-                collectionPath,
-                documentId: documentId || null,
-                data
-            });
+            let result;
 
-            if (result.success) {
-                addLog?.('success', `Created document ${result.documentId}`);
-                await loadDocuments();
-                return { success: true, documentId: result.documentId };
+            if (project?.authMethod === 'google') {
+                // For Google OAuth, use the googleSetDocument API
+                result = await window.electronAPI.googleSetDocument({
+                    projectId: project.projectId,
+                    collectionPath,
+                    documentId: documentId || `auto_${Date.now()}`,
+                    data
+                });
+                if (result.success) {
+                    addLog?.('success', `Created document ${documentId || 'with auto ID'}`);
+                    await loadDocuments();
+                    return { success: true, documentId: documentId || result.documentId };
+                }
             } else {
-                showMessage?.(result.error, 'error');
-                return { success: false, error: result.error };
+                // For service account, ensure connection and use createDocument
+                await window.electronAPI.disconnectFirebase();
+                await window.electronAPI.connectFirebase(project.serviceAccountPath);
+
+                result = await window.electronAPI.createDocument({
+                    collectionPath,
+                    documentId: documentId || null,
+                    data
+                });
+
+                if (result.success) {
+                    addLog?.('success', `Created document ${result.documentId}`);
+                    await loadDocuments();
+                    return { success: true, documentId: result.documentId };
+                }
             }
+
+            showMessage?.(result.error, 'error');
+            return { success: false, error: result.error };
         } catch (error) {
             showMessage?.(error.message, 'error');
             return { success: false, error: error.message };
         }
-    }, [collectionPath, addLog, showMessage, loadDocuments]);
+    }, [project, collectionPath, addLog, showMessage, loadDocuments]);
 
     /**
      * Saves multiple documents (for JSON editing)
@@ -227,24 +248,113 @@ export const useCollectionData = (project, collectionPath, options = {}) => {
      * Exports collection to file
      */
     const exportCollection = useCallback(async () => {
-        const result = await window.electronAPI.exportCollection(collectionPath);
-        if (result.success) {
-            addLog?.('success', `Exported to ${result.filePath}`);
+        try {
+            if (project?.authMethod === 'google') {
+                // For Google OAuth, export the currently loaded documents
+                if (documents.length === 0) {
+                    showMessage?.('No documents to export', 'warning');
+                    return { success: false, error: 'No documents to export' };
+                }
+
+                const exportData = {};
+                documents.forEach(doc => {
+                    exportData[doc.id] = doc.data;
+                });
+
+                // Create a download by creating a blob and link
+                const jsonString = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${collectionPath.replace(/\//g, '_')}_export.json`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                addLog?.('success', `Exported ${documents.length} documents`);
+                return { success: true };
+            } else {
+                // For service account, use the IPC handler
+                const result = await window.electronAPI.exportCollection(collectionPath);
+                if (result.success) {
+                    addLog?.('success', `Exported to ${result.filePath}`);
+                } else if (result.error !== 'Export cancelled') {
+                    showMessage?.(result.error, 'error');
+                }
+                return result;
+            }
+        } catch (error) {
+            showMessage?.(error.message, 'error');
+            return { success: false, error: error.message };
         }
-        return result;
-    }, [collectionPath, addLog]);
+    }, [project, collectionPath, documents, addLog, showMessage]);
 
     /**
      * Imports documents from file
      */
     const importDocuments = useCallback(async () => {
-        const result = await window.electronAPI.importDocuments(collectionPath);
-        if (result.success) {
-            addLog?.('success', `Imported ${result.count} documents`);
-            await loadDocuments();
+        try {
+            if (project?.authMethod === 'google') {
+                // For Google OAuth, handle file selection via input element
+                return new Promise((resolve) => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = '.json';
+                    input.onchange = async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) {
+                            resolve({ success: false, error: 'No file selected' });
+                            return;
+                        }
+
+                        try {
+                            const text = await file.text();
+                            const data = JSON.parse(text);
+                            let count = 0;
+
+                            // Import each document
+                            for (const [docId, docData] of Object.entries(data)) {
+                                const result = await window.electronAPI.googleSetDocument({
+                                    projectId: project.projectId,
+                                    collectionPath,
+                                    documentId: docId,
+                                    data: docData
+                                });
+                                if (result.success) count++;
+                            }
+
+                            addLog?.('success', `Imported ${count} documents`);
+                            await loadDocuments();
+                            resolve({ success: true, count });
+                        } catch (parseError) {
+                            showMessage?.(`Invalid JSON file: ${parseError.message}`, 'error');
+                            resolve({ success: false, error: parseError.message });
+                        }
+                    };
+                    input.click();
+                });
+            } else {
+                // For service account, ensure connection and use importDocuments
+                await window.electronAPI.disconnectFirebase();
+                await window.electronAPI.connectFirebase(project.serviceAccountPath);
+
+                const result = await window.electronAPI.importDocuments(collectionPath);
+                if (result.success) {
+                    addLog?.('success', `Imported ${result.count} documents`);
+                    await loadDocuments();
+                } else if (result.error !== 'Import cancelled') {
+                    showMessage?.(result.error, 'error');
+                }
+                return result;
+            }
+        } catch (error) {
+            showMessage?.(error.message, 'error');
+            return { success: false, error: error.message };
         }
-        return result;
-    }, [collectionPath, addLog, loadDocuments]);
+    }, [project, collectionPath, addLog, showMessage, loadDocuments]);
 
     // Initialize JS query when collection changes
     useEffect(() => {

@@ -14,8 +14,6 @@ import {
     PlayArrow as RunIcon,
     Star as StarIcon,
     StarBorder as StarBorderIcon,
-    Undo as UndoIcon,
-    ContentCopy as CopyIcon,
 } from '@mui/icons-material';
 
 function QueryBar({
@@ -55,8 +53,6 @@ function QueryBar({
                     )}
                 </IconButton>
             </Tooltip>
-            <Tooltip title="Undo"><IconButton size="small"><UndoIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
-            <Tooltip title="Copy"><IconButton size="small"><CopyIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
             <Tooltip title={`Run Query (F5)\n${queryMode === 'js' ? 'Executes JS Query' : 'Executes Simple Query'}`}>
                 <Button variant="contained" size="small" onClick={onRunQuery} startIcon={<RunIcon />} sx={{ ml: 1 }}>
                     Run (F5)

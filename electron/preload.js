@@ -81,5 +81,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     googleDeleteAuthUser: (params) => ipcRenderer.invoke('google:deleteAuthUser', params),
 
     // Google OAuth JS Query (structured query)
-    googleExecuteStructuredQuery: (params) => ipcRenderer.invoke('google:executeStructuredQuery', params)
+    googleExecuteStructuredQuery: (params) => ipcRenderer.invoke('google:executeStructuredQuery', params),
+
+    // Google OAuth Delete Document
+    googleDeleteDocument: (params) => ipcRenderer.invoke('google:deleteDocument', params)
 });

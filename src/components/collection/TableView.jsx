@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box } from '@mui/material';
 
 const MAX_VISIBLE_ROWS = 100;
@@ -22,8 +22,35 @@ function TableView({
     bgColor,
     textColor,
     mutedColor,
+    selectedRows,
+    setSelectedRows,
 }) {
     const resizingRef = useRef(null);
+    const [selectedCell, setSelectedCell] = useState(null);
+
+    const displayedDocs = documents.slice(0, MAX_VISIBLE_ROWS);
+    const allSelected = displayedDocs.length > 0 && displayedDocs.every(doc => selectedRows?.includes(doc.id));
+    const someSelected = displayedDocs.some(doc => selectedRows?.includes(doc.id)) && !allSelected;
+
+    const handleSelectAll = (e) => {
+        e.stopPropagation();
+        if (allSelected) {
+            setSelectedRows?.([]);
+        } else {
+            setSelectedRows?.(displayedDocs.map(doc => doc.id));
+        }
+    };
+
+    const handleSelectRow = (e, docId) => {
+        e.stopPropagation();
+        setSelectedRows?.(prev => {
+            if (prev?.includes(docId)) {
+                return prev.filter(id => id !== docId);
+            } else {
+                return [...(prev || []), docId];
+            }
+        });
+    };
 
     const getColWidth = (field) => columnWidths[field] || 120;
 
@@ -63,8 +90,7 @@ function TableView({
         };
     }, [setColumnWidths]);
 
-    const displayedDocs = documents.slice(0, MAX_VISIBLE_ROWS);
-    const gridColumns = `${getColWidth('__docId__')}px ${visibleFields.map(f => `${getColWidth(f)}px`).join(' ')}`;
+    const gridColumns = `36px ${getColWidth('__docId__')}px ${visibleFields.map(f => `${getColWidth(f)}px`).join(' ')}`;
 
     return (
         <Box sx={{ flexGrow: 1, overflow: 'auto', position: 'relative' }}>
@@ -80,6 +106,29 @@ function TableView({
                 minWidth: 'max-content',
             }}>
                 {/* Header Row */}
+                {/* Checkbox header */}
+                <div
+                    style={{
+                        position: 'sticky',
+                        top: 0,
+                        backgroundColor: bgColor,
+                        padding: '4px 8px',
+                        borderBottom: `1px solid ${borderColor}`,
+                        borderRight: `1px solid ${borderColor}`,
+                        zIndex: 10,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                    }}
+                >
+                    <input
+                        type="checkbox"
+                        checked={allSelected}
+                        ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                        onChange={handleSelectAll}
+                        style={{ cursor: 'pointer', width: 16, height: 16 }}
+                    />
+                </div>
                 <div
                     title="Doc ID"
                     style={{
@@ -148,72 +197,99 @@ function TableView({
                 ))}
 
                 {/* Data Rows */}
-                {displayedDocs.map(doc => (
-                    <React.Fragment key={doc.id}>
-                        <div
-                            title={doc.id}
-                            style={{
-                                padding: '6px 4px',
-                                color: '#1976d2',
-                                fontWeight: 500,
-                                borderBottom: `1px solid ${borderColor}`,
-                                borderRight: `1px solid ${borderColor}`,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                            }}
-                        >
-                            {doc.id}
-                        </div>
-                        {visibleFields.map(f => {
-                            const value = doc.data?.[f];
-                            const type = getType(value);
-                            const displayValue = value === undefined ? '—' :
-                                (type === 'Array' || type === 'Map') ? JSON.stringify(value) : formatValue(value, type);
-                            const isEditing = editingCell?.docId === doc.id && editingCell?.field === f;
+                {displayedDocs.map(doc => {
+                    const isRowSelected = selectedRows?.includes(doc.id);
+                    return (
+                        <React.Fragment key={doc.id}>
+                            {/* Row checkbox */}
+                            <div
+                                style={{
+                                    padding: '4px 8px',
+                                    borderBottom: `1px solid ${borderColor}`,
+                                    borderRight: `1px solid ${borderColor}`,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backgroundColor: isRowSelected ? (isDark ? 'rgba(25, 118, 210, 0.15)' : 'rgba(25, 118, 210, 0.08)') : 'transparent',
+                                }}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={isRowSelected}
+                                    onChange={(e) => handleSelectRow(e, doc.id)}
+                                    style={{ cursor: 'pointer', width: 16, height: 16 }}
+                                />
+                            </div>
+                            <div
+                                title={doc.id}
+                                style={{
+                                    padding: '6px 4px',
+                                    color: '#1976d2',
+                                    fontWeight: 500,
+                                    borderBottom: `1px solid ${borderColor}`,
+                                    borderRight: `1px solid ${borderColor}`,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    backgroundColor: isRowSelected ? (isDark ? 'rgba(25, 118, 210, 0.15)' : 'rgba(25, 118, 210, 0.08)') : 'transparent',
+                                }}
+                            >
+                                {doc.id}
+                            </div>
+                            {visibleFields.map(f => {
+                                const value = doc.data?.[f];
+                                const type = getType(value);
+                                const displayValue = value === undefined ? '—' :
+                                    (type === 'Array' || type === 'Map') ? JSON.stringify(value) : formatValue(value, type);
+                                const isEditing = editingCell?.docId === doc.id && editingCell?.field === f;
+                                const isSelected = selectedCell?.docId === doc.id && selectedCell?.field === f;
 
-                            return (
-                                <div
-                                    key={f}
-                                    title={displayValue}
-                                    onClick={() => !isEditing && onCellEdit(doc.id, f, value)}
-                                    style={{
-                                        padding: '6px 4px',
-                                        borderBottom: `1px solid ${borderColor}`,
-                                        borderRight: `1px solid ${borderColor}`,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                        color: value === undefined ? mutedColor : getTypeColor(type),
-                                        fontStyle: value === undefined ? 'italic' : 'normal',
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    {isEditing ? (
-                                        <input
-                                            type="text"
-                                            value={editValue}
-                                            onChange={(e) => setEditValue(e.target.value)}
-                                            onBlur={onCellSave}
-                                            onKeyDown={onCellKeyDown}
-                                            autoFocus
-                                            style={{
-                                                width: '100%',
-                                                border: '1px solid #1976d2',
-                                                outline: 'none',
-                                                padding: '2px 4px',
-                                                fontSize: '0.8rem',
-                                                fontFamily: 'monospace',
-                                                backgroundColor: isDark ? '#2d2d2d' : '#fff',
-                                                color: isDark ? '#fff' : '#000',
-                                            }}
-                                        />
-                                    ) : displayValue}
-                                </div>
-                            );
-                        })}
-                    </React.Fragment>
-                ))}
+                                return (
+                                    <div
+                                        key={f}
+                                        title={displayValue}
+                                        onClick={() => setSelectedCell({ docId: doc.id, field: f })}
+                                        onDoubleClick={() => !isEditing && onCellEdit(doc.id, f, value)}
+                                        style={{
+                                            padding: '6px 4px',
+                                            borderBottom: `1px solid ${borderColor}`,
+                                            borderRight: `1px solid ${borderColor}`,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                            color: value === undefined ? mutedColor : getTypeColor(type),
+                                            fontStyle: value === undefined ? 'italic' : 'normal',
+                                            cursor: 'default',
+                                            outline: isSelected ? `1px solid #1976d2` : 'none',
+                                            outlineOffset: '-1px',
+                                        }}
+                                    >
+                                        {isEditing ? (
+                                            <input
+                                                type="text"
+                                                value={editValue}
+                                                onChange={(e) => setEditValue(e.target.value)}
+                                                onBlur={onCellSave}
+                                                onKeyDown={onCellKeyDown}
+                                                autoFocus
+                                                style={{
+                                                    width: '100%',
+                                                    border: 'none',
+                                                    outline: 'none',
+                                                    padding: '0',
+                                                    fontSize: '0.8rem',
+                                                    fontFamily: 'monospace',
+                                                    backgroundColor: 'transparent',
+                                                    color: isDark ? '#fff' : '#000',
+                                                }}
+                                            />
+                                        ) : displayValue}
+                                    </div>
+                                );
+                            })}
+                        </React.Fragment>
+                    );
+                })}
             </div>
         </Box>
     );
