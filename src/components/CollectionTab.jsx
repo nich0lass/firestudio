@@ -164,6 +164,20 @@ function CollectionTab({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [executeJsQuery, loadDocuments, queryModeRef]);
 
+    // Listen for refresh-collection events from App
+    useEffect(() => {
+        const handleRefreshCollection = (e) => {
+            const { projectId, collectionPath: eventCollectionPath } = e.detail || {};
+            // Only refresh if this is the collection being refreshed
+            if (projectId === project?.projectId && eventCollectionPath === collectionPath) {
+                loadDocuments();
+            }
+        };
+
+        window.addEventListener('refresh-collection', handleRefreshCollection);
+        return () => window.removeEventListener('refresh-collection', handleRefreshCollection);
+    }, [project?.projectId, collectionPath, loadDocuments]);
+
     // Computed values
     const allFields = useMemo(() => extractAllFields(documents), [documents]);
 
@@ -411,7 +425,6 @@ function CollectionTab({
                 onImport={importDocuments}
                 onAdd={() => setCreateDialogOpen(true)}
                 onDelete={() => setDeleteDialogOpen(true)}
-                onSettings={() => setSettingsDialogOpen(true)}
                 allFields={allFields}
                 visibleFields={visibleFields}
                 hiddenColumns={hiddenColumns}

@@ -84,5 +84,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     googleExecuteStructuredQuery: (params) => ipcRenderer.invoke('google:executeStructuredQuery', params),
 
     // Google OAuth Delete Document
-    googleDeleteDocument: (params) => ipcRenderer.invoke('google:deleteDocument', params)
+    googleDeleteDocument: (params) => ipcRenderer.invoke('google:deleteDocument', params),
+
+    // Google OAuth Count Documents
+    googleCountDocuments: (params) => ipcRenderer.invoke('google:countDocuments', params)
 });

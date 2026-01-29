@@ -9,6 +9,11 @@ const defaultSettings = {
     autoExpandDocuments: true,
     showTypeColumn: true,
     fontSize: 'medium', // 'small', 'medium', 'large'
+    // Data Type Display Settings
+    timestampFormat: 'iso', // 'iso', 'unix', 'local', 'relative', 'utc'
+    numberFormat: 'auto', // 'auto', 'fixed', 'scientific', 'thousands'
+    numberDecimalPlaces: 2, // 0-10
+    geopointFormat: 'decimal', // 'decimal', 'dms', 'compact'
 };
 
 export function SettingsProvider({ children }) {

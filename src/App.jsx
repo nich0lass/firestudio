@@ -95,7 +95,24 @@ function App() {
         setLogs([]);
     }, []);
 
+    // API Disabled Error Dialog state
+    const [apiDisabledDialog, setApiDisabledDialog] = useState({ open: false, projectId: '', apiUrl: '' });
+
     const showMessage = useCallback((message, severity = 'info') => {
+        // Check for API disabled error and show special dialog
+        if (message && message.includes('has not been used in project') && message.includes('Enable it by visiting')) {
+            const urlMatch = message.match(/https:\/\/console\.developers\.google\.com\/[^\s]+/);
+            const projectMatch = message.match(/project\s+([^\s]+)\s+before/);
+            if (urlMatch) {
+                setApiDisabledDialog({
+                    open: true,
+                    projectId: projectMatch ? projectMatch[1] : 'this project',
+                    apiUrl: urlMatch[0]
+                });
+                addLog('error', message);
+                return;
+            }
+        }
         setSnackbar({ open: true, message, severity });
         addLog(severity, message);
     }, [addLog]);
@@ -425,8 +442,8 @@ function App() {
         }
     };
 
-    // Refresh collections for a project
-    const handleRefreshCollections = async (project) => {
+    // Refresh collections for a project (silent mode skips error dialogs)
+    const handleRefreshCollections = async (project, silent = false) => {
         try {
             let collections = [];
 
@@ -436,6 +453,11 @@ function App() {
                 if (result.success) {
                     collections = result.collections;
                 } else {
+                    // In silent mode, just log the error without showing dialog
+                    if (silent) {
+                        addLog('warning', `Skipped ${project.projectId}: ${result.error}`);
+                        return;
+                    }
                     showMessage(result.error, 'error');
                     return;
                 }
@@ -473,6 +495,482 @@ function App() {
         } catch (error) {
             showMessage(error.message, 'error');
         }
+    };
+
+    // Export all collections from a project
+    const handleExportAllCollections = async (project) => {
+        if (!project?.collections || project.collections.length === 0) {
+            showMessage('No collections to export', 'warning');
+            return;
+        }
+
+        addLog('info', `Exporting all collections from ${project.projectId}...`);
+        showMessage(`Exporting ${project.collections.length} collection(s)...`, 'info');
+
+        try {
+            const allData = {};
+
+            for (const collectionName of project.collections) {
+                try {
+                    let documents;
+                    if (project.authMethod === 'google') {
+                        const result = await window.electronAPI.googleGetDocuments({
+                            projectId: project.projectId,
+                            collectionPath: collectionName,
+                            limit: 10000 // Get all documents
+                        });
+                        documents = result.success ? result.documents : [];
+                    } else {
+                        await window.electronAPI.disconnectFirebase();
+                        await window.electronAPI.connectFirebase(project.serviceAccountPath);
+                        const result = await window.electronAPI.getDocuments({
+                            collectionPath: collectionName,
+                            limit: 10000
+                        });
+                        documents = result.success ? result.documents : [];
+                    }
+
+                    // Convert documents to a map with doc ID as key
+                    allData[collectionName] = {};
+                    documents.forEach(doc => {
+                        allData[collectionName][doc.id] = doc.data;
+                    });
+                } catch (error) {
+                    addLog('error', `Failed to export ${collectionName}: ${error.message}`);
+                }
+            }
+
+            // Create and download JSON file
+            const jsonStr = JSON.stringify(allData, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${project.projectId}_all_collections_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showMessage(`Exported ${Object.keys(allData).length} collection(s)`, 'success');
+        } catch (error) {
+            showMessage(`Export failed: ${error.message}`, 'error');
+        }
+    };
+
+    // Open Firebase Console in browser
+    const handleRevealInFirebaseConsole = (project) => {
+        const url = `https://console.firebase.google.com/project/${project.projectId}/firestore`;
+        window.open(url, '_blank');
+        addLog('info', `Opened Firebase Console for ${project.projectId}`);
+    };
+
+    // Copy project ID to clipboard
+    const handleCopyProjectId = async (project) => {
+        try {
+            await navigator.clipboard.writeText(project.projectId);
+            showMessage(`Copied "${project.projectId}" to clipboard`, 'success');
+        } catch (error) {
+            // Fallback for older browsers
+            const textArea = document.createElement('textarea');
+            textArea.value = project.projectId;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            showMessage(`Copied "${project.projectId}" to clipboard`, 'success');
+        }
+    };
+
+    // Add Document Dialog state
+    const [addDocumentDialogOpen, setAddDocumentDialogOpen] = useState(false);
+    const [addDocumentTarget, setAddDocumentTarget] = useState(null);
+    const [newDocId, setNewDocId] = useState('');
+    const [newDocData, setNewDocData] = useState('{}');
+    const [addDocumentLoading, setAddDocumentLoading] = useState(false);
+
+    // Rename Collection Dialog state
+    const [renameCollectionDialogOpen, setRenameCollectionDialogOpen] = useState(false);
+    const [renameCollectionTarget, setRenameCollectionTarget] = useState(null);
+    const [renameTargetPath, setRenameTargetPath] = useState('');
+    const [renameCollectionLoading, setRenameCollectionLoading] = useState(false);
+
+    // Collection Menu Handlers
+    const handleAddDocument = (project, collection) => {
+        setAddDocumentTarget({ project, collection });
+        setNewDocId('');
+        setNewDocData('{}');
+        setAddDocumentDialogOpen(true);
+    };
+
+    const confirmAddDocument = async () => {
+        if (!addDocumentTarget) return;
+        const { project, collection } = addDocumentTarget;
+
+        let data;
+        try {
+            data = JSON.parse(newDocData.trim() || '{}');
+        } catch (parseError) {
+            showMessage('Invalid JSON in document data', 'error');
+            return;
+        }
+
+        setAddDocumentLoading(true);
+        const docId = newDocId.trim() || `auto_${Date.now()}`;
+
+        try {
+            if (project.authMethod === 'google') {
+                const result = await window.electronAPI.googleSetDocument({
+                    projectId: project.projectId,
+                    collectionPath: collection,
+                    documentId: docId,
+                    data
+                });
+                if (!result?.success) {
+                    showMessage(`Failed to create document: ${result?.error}`, 'error');
+                    return;
+                }
+            } else {
+                await window.electronAPI.disconnectFirebase();
+                await window.electronAPI.connectFirebase(project.serviceAccountPath);
+                const result = await window.electronAPI.createDocument({
+                    collectionPath: collection,
+                    documentId: docId,
+                    data
+                });
+                if (!result?.success) {
+                    showMessage(`Failed to create document: ${result?.error}`, 'error');
+                    return;
+                }
+            }
+
+            showMessage(`Created document "${docId}" in ${collection}`, 'success');
+            setAddDocumentDialogOpen(false);
+
+            // Dispatch event to refresh collection if it's open
+            window.dispatchEvent(new CustomEvent('refresh-collection', {
+                detail: { projectId: project.projectId, collectionPath: collection }
+            }));
+        } catch (error) {
+            showMessage(`Error: ${error.message}`, 'error');
+        } finally {
+            setAddDocumentLoading(false);
+        }
+    };
+
+    const handleRenameCollection = (project, collection) => {
+        setRenameCollectionTarget({ project, collection });
+        setRenameTargetPath(collection);
+        setRenameCollectionDialogOpen(true);
+    };
+
+    const confirmRenameCollection = async () => {
+        if (!renameCollectionTarget || !renameTargetPath.trim()) return;
+        const { project, collection } = renameCollectionTarget;
+        const targetPath = renameTargetPath.trim();
+
+        if (targetPath === collection) {
+            showMessage('Target path must differ from current path', 'warning');
+            return;
+        }
+
+        setRenameCollectionLoading(true);
+        addLog('info', `Renaming collection "${collection}" to "${targetPath}"...`);
+
+        try {
+            // Step 1: Get all documents from source collection
+            let documents = [];
+            if (project.authMethod === 'google') {
+                const result = await window.electronAPI.googleGetDocuments({
+                    projectId: project.projectId,
+                    collectionPath: collection,
+                    limit: 10000
+                });
+                documents = result.success ? result.documents : [];
+            } else {
+                await window.electronAPI.disconnectFirebase();
+                await window.electronAPI.connectFirebase(project.serviceAccountPath);
+                const result = await window.electronAPI.getDocuments({
+                    collectionPath: collection,
+                    limit: 10000
+                });
+                documents = result.success ? result.documents : [];
+            }
+
+            // Step 2: Copy documents to new collection
+            let copied = 0;
+            for (const doc of documents) {
+                try {
+                    if (project.authMethod === 'google') {
+                        await window.electronAPI.googleSetDocument({
+                            projectId: project.projectId,
+                            collectionPath: targetPath,
+                            documentId: doc.id,
+                            data: doc.data
+                        });
+                    } else {
+                        await window.electronAPI.createDocument({
+                            collectionPath: targetPath,
+                            documentId: doc.id,
+                            data: doc.data
+                        });
+                    }
+                    copied++;
+                } catch (err) {
+                    addLog('error', `Failed to copy document ${doc.id}: ${err.message}`);
+                }
+            }
+
+            // Step 3: Delete documents from original collection
+            let deleted = 0;
+            for (const doc of documents) {
+                try {
+                    if (project.authMethod === 'google') {
+                        await window.electronAPI.googleDeleteDocument({
+                            projectId: project.projectId,
+                            collectionPath: collection,
+                            documentId: doc.id
+                        });
+                    } else {
+                        await window.electronAPI.deleteDocument(`${collection}/${doc.id}`);
+                    }
+                    deleted++;
+                } catch (err) {
+                    addLog('error', `Failed to delete original ${doc.id}: ${err.message}`);
+                }
+            }
+
+            showMessage(`Renamed: copied ${copied} docs, deleted ${deleted} originals`, 'success');
+
+            // Refresh collections
+            await handleRefreshCollections(project);
+
+            // Close tabs for old collection, open new one
+            setOpenTabs(prev => prev.filter(t => !(t.projectId === project.id && t.collectionPath === collection)));
+            handleOpenCollection(project, targetPath);
+        } catch (error) {
+            showMessage(`Rename failed: ${error.message}`, 'error');
+        } finally {
+            setRenameCollectionLoading(false);
+            setRenameCollectionDialogOpen(false);
+            setRenameCollectionTarget(null);
+        }
+    };
+
+    const [deleteCollectionDialogOpen, setDeleteCollectionDialogOpen] = useState(false);
+    const [deleteCollectionTarget, setDeleteCollectionTarget] = useState(null);
+    const [deleteCollectionLoading, setDeleteCollectionLoading] = useState(false);
+
+    const handleDeleteCollection = (project, collection) => {
+        setDeleteCollectionTarget({ project, collection });
+        setDeleteCollectionDialogOpen(true);
+    };
+
+    const confirmDeleteCollection = async () => {
+        if (!deleteCollectionTarget) return;
+        const { project, collection } = deleteCollectionTarget;
+
+        setDeleteCollectionLoading(true);
+        addLog('info', `Deleting collection "${collection}"...`);
+
+        try {
+            // Get all documents in the collection
+            let documents = [];
+            if (project.authMethod === 'google') {
+                const result = await window.electronAPI.googleGetDocuments({
+                    projectId: project.projectId,
+                    collectionPath: collection,
+                    limit: 10000
+                });
+                documents = result.success ? result.documents : [];
+            } else {
+                await window.electronAPI.disconnectFirebase();
+                await window.electronAPI.connectFirebase(project.serviceAccountPath);
+                const result = await window.electronAPI.getDocuments({
+                    collectionPath: collection,
+                    limit: 10000
+                });
+                documents = result.success ? result.documents : [];
+            }
+
+            // Delete each document
+            let deleted = 0;
+            for (const doc of documents) {
+                try {
+                    if (project.authMethod === 'google') {
+                        await window.electronAPI.googleDeleteDocument({
+                            projectId: project.projectId,
+                            collectionPath: collection,
+                            documentId: doc.id
+                        });
+                    } else {
+                        await window.electronAPI.deleteDocument(`${collection}/${doc.id}`);
+                    }
+                    deleted++;
+                } catch (err) {
+                    addLog('error', `Failed to delete document ${doc.id}: ${err.message}`);
+                }
+            }
+
+            showMessage(`Deleted ${deleted} documents from "${collection}"`, 'success');
+
+            // Refresh collections
+            await handleRefreshCollections(project);
+
+            // Close any tabs for this collection
+            setOpenTabs(prev => prev.filter(t => !(t.projectId === project.id && t.collectionPath === collection)));
+        } catch (error) {
+            showMessage(`Failed to delete collection: ${error.message}`, 'error');
+        } finally {
+            setDeleteCollectionLoading(false);
+            setDeleteCollectionDialogOpen(false);
+            setDeleteCollectionTarget(null);
+        }
+    };
+
+    const handleExportCollection = async (project, collection) => {
+        addLog('info', `Exporting collection "${collection}"...`);
+        showMessage(`Exporting ${collection}...`, 'info');
+
+        try {
+            let documents;
+            if (project.authMethod === 'google') {
+                const result = await window.electronAPI.googleGetDocuments({
+                    projectId: project.projectId,
+                    collectionPath: collection,
+                    limit: 10000
+                });
+                documents = result.success ? result.documents : [];
+            } else {
+                await window.electronAPI.disconnectFirebase();
+                await window.electronAPI.connectFirebase(project.serviceAccountPath);
+                const result = await window.electronAPI.getDocuments({
+                    collectionPath: collection,
+                    limit: 10000
+                });
+                documents = result.success ? result.documents : [];
+            }
+
+            // Convert to export format
+            const exportData = {};
+            documents.forEach(doc => {
+                exportData[doc.id] = doc.data;
+            });
+
+            // Download
+            const jsonStr = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${project.projectId}_${collection}_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showMessage(`Exported ${documents.length} documents from "${collection}"`, 'success');
+        } catch (error) {
+            showMessage(`Export failed: ${error.message}`, 'error');
+        }
+    };
+
+    const handleEstimateDocCount = async (project, collection) => {
+        addLog('info', `Estimating document count for "${collection}"...`);
+        showMessage(`Counting documents in ${collection}...`, 'info');
+
+        try {
+            let count = 0;
+            if (project.authMethod === 'google') {
+                // Try to use COUNT aggregation query first (more efficient)
+                const countResult = await window.electronAPI.googleCountDocuments?.({
+                    projectId: project.projectId,
+                    collectionPath: collection
+                });
+
+                if (countResult?.success && countResult.count !== undefined) {
+                    count = countResult.count;
+                } else {
+                    // Fallback: paginate through documents to count them
+                    let pageToken = null;
+                    const pageSize = 1000;
+                    do {
+                        const result = await window.electronAPI.googleGetDocuments({
+                            projectId: project.projectId,
+                            collectionPath: collection,
+                            limit: pageSize,
+                            pageToken
+                        });
+                        if (result.success) {
+                            count += result.documents?.length || 0;
+                            pageToken = result.nextPageToken;
+                        } else {
+                            break;
+                        }
+                    } while (pageToken);
+                }
+            } else {
+                await window.electronAPI.disconnectFirebase();
+                await window.electronAPI.connectFirebase(project.serviceAccountPath);
+
+                // Try COUNT aggregation first
+                const countResult = await window.electronAPI.countDocuments?.({
+                    collectionPath: collection
+                });
+
+                if (countResult?.success && countResult.count !== undefined) {
+                    count = countResult.count;
+                } else {
+                    // Fallback: get all documents
+                    const result = await window.electronAPI.getDocuments({
+                        collectionPath: collection,
+                        limit: 100000
+                    });
+                    count = result.success ? result.documents?.length || 0 : 0;
+                }
+            }
+
+            showMessage(`"${collection}" has ${count.toLocaleString()} documents`, 'success');
+        } catch (error) {
+            showMessage(`Failed to count: ${error.message}`, 'error');
+        }
+    };
+
+    const handleCopyCollectionId = async (collection) => {
+        try {
+            await navigator.clipboard.writeText(collection);
+            showMessage(`Copied "${collection}" to clipboard`, 'success');
+        } catch (error) {
+            const textArea = document.createElement('textarea');
+            textArea.value = collection;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            showMessage(`Copied "${collection}" to clipboard`, 'success');
+        }
+    };
+
+    const handleCopyResourcePath = async (project, collection) => {
+        const path = `projects/${project.projectId}/databases/(default)/documents/${collection}`;
+        try {
+            await navigator.clipboard.writeText(path);
+            showMessage(`Copied resource path to clipboard`, 'success');
+        } catch (error) {
+            const textArea = document.createElement('textarea');
+            textArea.value = path;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
+            showMessage(`Copied resource path to clipboard`, 'success');
+        }
+    };
+
+    const handleRevealCollectionInConsole = (project, collection) => {
+        const url = `https://console.firebase.google.com/project/${project.projectId}/firestore/data/~2F${collection}`;
+        window.open(url, '_blank');
+        addLog('info', `Opened Firebase Console for collection ${collection}`);
     };
 
     // Helper to find a project by ID (handles nested Google account projects)
@@ -527,6 +1025,7 @@ function App() {
                 <ProjectSidebar
                     projects={projects}
                     selectedProject={selectedProject}
+                    activeTab={activeTab}
                     onSelectProject={setSelectedProject}
                     onOpenCollection={handleOpenCollection}
                     onOpenStorage={handleOpenStorage}
@@ -536,6 +1035,18 @@ function App() {
                     onDisconnectProject={handleDisconnectProject}
                     onDisconnectAccount={handleDisconnectAccount}
                     onRefreshCollections={handleRefreshCollections}
+                    onExportAllCollections={handleExportAllCollections}
+                    onRevealInFirebaseConsole={handleRevealInFirebaseConsole}
+                    onCopyProjectId={handleCopyProjectId}
+                    // Collection menu handlers
+                    onAddDocument={handleAddDocument}
+                    onRenameCollection={handleRenameCollection}
+                    onDeleteCollection={handleDeleteCollection}
+                    onExportCollection={handleExportCollection}
+                    onEstimateDocCount={handleEstimateDocCount}
+                    onCopyCollectionId={handleCopyCollectionId}
+                    onCopyResourcePath={handleCopyResourcePath}
+                    onRevealCollectionInConsole={handleRevealCollectionInConsole}
                     onOpenSettings={() => setSettingsDialogOpen(true)}
                     onOpenFavorites={() => setFavoritesPanelOpen(true)}
                     onOpenConsole={() => setConsolePanelOpen(true)}
@@ -558,6 +1069,13 @@ function App() {
                                 <Box
                                     key={tab.id}
                                     onClick={() => setActiveTabId(tab.id)}
+                                    onAuxClick={(e) => {
+                                        // Middle mouse button click to close tab
+                                        if (e.button === 1) {
+                                            e.preventDefault();
+                                            handleCloseTab(tab.id, e);
+                                        }
+                                    }}
                                     sx={{
                                         display: 'flex',
                                         alignItems: 'center',
@@ -766,6 +1284,196 @@ function App() {
                         startIcon={addCollectionLoading ? <CircularProgress size={16} /> : <AddIcon />}
                     >
                         {addCollectionLoading ? 'Creating...' : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Delete Collection Dialog */}
+            <Dialog
+                open={deleteCollectionDialogOpen}
+                onClose={() => !deleteCollectionLoading && setDeleteCollectionDialogOpen(false)}
+            >
+                <DialogTitle sx={{ color: 'error.main' }}>
+                    Delete Collection?
+                </DialogTitle>
+                <DialogContent>
+                    <Typography sx={{ mb: 2 }}>
+                        Are you sure you want to delete the collection <strong>"{deleteCollectionTarget?.collection}"</strong>?
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        This will permanently delete all documents in this collection. This action cannot be undone.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setDeleteCollectionDialogOpen(false)}
+                        disabled={deleteCollectionLoading}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={confirmDeleteCollection}
+                        color="error"
+                        variant="contained"
+                        disabled={deleteCollectionLoading}
+                        startIcon={deleteCollectionLoading ? <CircularProgress size={16} /> : null}
+                    >
+                        {deleteCollectionLoading ? 'Deleting...' : 'Delete Collection'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Add Document Dialog */}
+            <Dialog
+                open={addDocumentDialogOpen}
+                onClose={() => !addDocumentLoading && setAddDocumentDialogOpen(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>
+                    Add Document
+                    {addDocumentTarget && (
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                            Collection: {addDocumentTarget.collection}
+                        </Typography>
+                    )}
+                </DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        fullWidth
+                        label="Document ID (optional)"
+                        value={newDocId}
+                        onChange={(e) => setNewDocId(e.target.value)}
+                        disabled={addDocumentLoading}
+                        placeholder="Leave empty for auto-generated ID"
+                        helperText="Optional: Specify a custom document ID"
+                        sx={{ mt: 1 }}
+                    />
+                    <TextField
+                        fullWidth
+                        multiline
+                        rows={6}
+                        label="Document Data"
+                        value={newDocData}
+                        onChange={(e) => setNewDocData(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.ctrlKey && !addDocumentLoading) {
+                                confirmAddDocument();
+                            }
+                        }}
+                        disabled={addDocumentLoading}
+                        placeholder='{"field": "value"}'
+                        helperText="JSON object for the document (Ctrl+Enter to submit)"
+                        sx={{ mt: 2, '& .MuiInputBase-input': { fontFamily: 'monospace', fontSize: '0.85rem' } }}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setAddDocumentDialogOpen(false)}
+                        disabled={addDocumentLoading}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={confirmAddDocument}
+                        variant="contained"
+                        disabled={addDocumentLoading}
+                        startIcon={addDocumentLoading ? <CircularProgress size={16} /> : <AddIcon />}
+                    >
+                        {addDocumentLoading ? 'Creating...' : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Rename Collection Dialog */}
+            <Dialog
+                open={renameCollectionDialogOpen}
+                onClose={() => !renameCollectionLoading && setRenameCollectionDialogOpen(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>Rename Collection</DialogTitle>
+                <DialogContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, mt: 1 }}>
+                        <Typography variant="body2" sx={{ minWidth: 100 }}>Source Project:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                            {renameCollectionTarget?.project?.projectId}
+                        </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                        <Typography variant="body2" sx={{ minWidth: 100 }}>Source Path:</Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                            /{renameCollectionTarget?.collection}
+                        </Typography>
+                    </Box>
+                    <TextField
+                        fullWidth
+                        label="Target Path"
+                        value={renameTargetPath}
+                        onChange={(e) => setRenameTargetPath(e.target.value)}
+                        disabled={renameCollectionLoading}
+                        error={renameTargetPath === renameCollectionTarget?.collection}
+                        helperText={renameTargetPath === renameCollectionTarget?.collection ? 'Target path must differ from current path' : ''}
+                        sx={{ mb: 2 }}
+                    />
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                        This will copy all documents to the new collection and delete the original documents.
+                        Nested subcollections are copied recursively. Existing documents with the same ID at the target path will be overwritten.
+                    </Alert>
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setRenameCollectionDialogOpen(false)}
+                        disabled={renameCollectionLoading}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={confirmRenameCollection}
+                        variant="contained"
+                        disabled={renameCollectionLoading || renameTargetPath === renameCollectionTarget?.collection || !renameTargetPath.trim()}
+                        startIcon={renameCollectionLoading ? <CircularProgress size={16} /> : null}
+                    >
+                        {renameCollectionLoading ? 'Renaming...' : 'OK'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* API Disabled Dialog */}
+            <Dialog
+                open={apiDisabledDialog.open}
+                onClose={() => setApiDisabledDialog({ open: false, projectId: '', apiUrl: '' })}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle sx={{ color: 'warning.main' }}>
+                    Cloud Firestore API Not Enabled
+                </DialogTitle>
+                <DialogContent>
+                    <Typography sx={{ mb: 2 }}>
+                        The Cloud Firestore API has not been enabled for project <strong>{apiDisabledDialog.projectId}</strong>.
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                        To use Firestore with this project, you need to enable the Cloud Firestore API in the Google Cloud Console.
+                    </Typography>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        Click the button below to open the Google Cloud Console and enable the API. After enabling, wait a few minutes and try again.
+                    </Alert>
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setApiDisabledDialog({ open: false, projectId: '', apiUrl: '' })}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="contained"
+                        onClick={() => {
+                            window.open(apiDisabledDialog.apiUrl, '_blank');
+                        }}
+                    >
+                        Enable Firestore API
                     </Button>
                 </DialogActions>
             </Dialog>

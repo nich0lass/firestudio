@@ -415,6 +415,39 @@ function registerHandlers() {
         } catch (error) { return { success: false, error: error.message }; }
     });
 
+    // Count Documents using Aggregation Query
+    ipcMain.handle('google:countDocuments', async (event, { projectId, collectionPath }) => {
+        try {
+            const structuredAggregationQuery = {
+                structuredAggregationQuery: {
+                    structuredQuery: {
+                        from: [{ collectionId: collectionPath }]
+                    },
+                    aggregations: [{
+                        alias: 'count',
+                        count: {}
+                    }]
+                }
+            };
+
+            const result = await authenticatedFetch(
+                `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runAggregationQuery`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(structuredAggregationQuery) }
+            );
+
+            if (!result.ok) return result.error;
+
+            const data = result.data;
+            if (Array.isArray(data) && data.length > 0 && data[0].result?.aggregateFields?.count) {
+                const countValue = data[0].result.aggregateFields.count.integerValue;
+                return { success: true, count: parseInt(countValue, 10) };
+            }
+
+            // Fallback if aggregation didn't work
+            return { success: false, error: 'Aggregation not supported' };
+        } catch (error) { return { success: false, error: error.message }; }
+    });
+
     // Delete Document
     ipcMain.handle('google:deleteDocument', async (event, { projectId, collectionPath, documentId }) => {
         try {

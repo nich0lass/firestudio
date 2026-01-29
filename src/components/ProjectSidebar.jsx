@@ -34,12 +34,20 @@ import {
     Logout as LogoutIcon,
     PeopleAlt as AuthIcon,
     LinkOff as LinkOffIcon,
+    FileDownload as ExportIcon,
+    OpenInNew as OpenInNewIcon,
+    ContentCopy as CopyIcon,
+    Edit as EditIcon,
+    Numbers as NumbersIcon,
+    Link as LinkIcon,
+    NoteAdd as AddDocIcon,
 } from '@mui/icons-material';
 import { useProjects } from '../context/ProjectsContext';
 
 function ProjectSidebar({
     projects,
     selectedProject,
+    activeTab,
     onSelectProject,
     onOpenCollection,
     onOpenStorage,
@@ -49,6 +57,18 @@ function ProjectSidebar({
     onDisconnectProject,
     onDisconnectAccount,
     onRefreshCollections,
+    onExportAllCollections,
+    onRevealInFirebaseConsole,
+    onCopyProjectId,
+    // Collection menu handlers
+    onAddDocument,
+    onRenameCollection,
+    onDeleteCollection,
+    onExportCollection,
+    onEstimateDocCount,
+    onCopyCollectionId,
+    onCopyResourcePath,
+    onRevealCollectionInConsole,
     onOpenSettings,
     onOpenFavorites,
     onOpenConsole,
@@ -91,14 +111,27 @@ function ProjectSidebar({
         setMenuTarget({ ...project, menuType: 'googleProject' });
     };
 
+    const [contextMenuPosition, setContextMenuPosition] = useState(null);
+
+    const handleContextMenu = (e, target, type) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenuPosition({ top: e.clientY, left: e.clientX });
+        setMenuAnchor(null); // Clear any existing anchor
+        setMenuTarget({ ...target, menuType: type });
+    };
+
     const handleCloseMenu = () => {
         setMenuAnchor(null);
+        setContextMenuPosition(null);
     };
 
     const handleMenuExited = () => {
         // Clear target only after menu exit animation completes
         setMenuTarget(null);
     };
+
+    const isMenuOpen = Boolean(menuAnchor) || Boolean(contextMenuPosition);
 
     // Separate Google accounts from service account projects
     const googleAccounts = projects.filter(p => p.type === 'googleAccount');
@@ -236,7 +269,16 @@ function ProjectSidebar({
                                         <IconButton
                                             size="small"
                                             onClick={(e) => handleMenu(e, account, 'account')}
-                                            sx={{ p: 0, opacity: 0.5, '&:hover': { opacity: 1 }, color: isDark ? '#aaa' : undefined }}
+                                            sx={{
+                                                p: 0.25,
+                                                opacity: 0.5,
+                                                '&:hover': {
+                                                    opacity: 1,
+                                                    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                                                },
+                                                color: isDark ? '#aaa' : undefined,
+                                                borderRadius: 1,
+                                            }}
                                         >
                                             <MoreVertIcon sx={{ fontSize: 16 }} />
                                         </IconButton>
@@ -252,6 +294,7 @@ function ProjectSidebar({
                                                     {/* Project Header */}
                                                     <Box
                                                         onClick={() => toggleExpanded(project.id)}
+                                                        onContextMenu={(e) => handleContextMenu(e, project, 'googleProject')}
                                                         sx={{
                                                             display: 'flex',
                                                             alignItems: 'center',
@@ -288,7 +331,16 @@ function ProjectSidebar({
                                                         <IconButton
                                                             size="small"
                                                             onClick={(e) => handleProjectMenu(e, project)}
-                                                            sx={{ p: 0, opacity: 0.5, '&:hover': { opacity: 1 }, color: isDark ? '#aaa' : undefined }}
+                                                            sx={{
+                                                                p: 0.25,
+                                                                opacity: 0.5,
+                                                                '&:hover': {
+                                                                    opacity: 1,
+                                                                    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                                                                },
+                                                                color: isDark ? '#aaa' : undefined,
+                                                                borderRadius: 1,
+                                                            }}
                                                         >
                                                             <MoreVertIcon sx={{ fontSize: 14 }} />
                                                         </IconButton>
@@ -297,25 +349,32 @@ function ProjectSidebar({
                                                     {/* Collections */}
                                                     <Collapse in={isProjectExpanded}>
                                                         <Box sx={{ pl: 5 }}>
-                                                            {project.collections?.map((collection) => (
-                                                                <Box
-                                                                    key={collection}
-                                                                    onClick={() => onOpenCollection(project, collection)}
-                                                                    sx={{
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        px: 1,
-                                                                        py: 0.3,
-                                                                        cursor: 'pointer',
-                                                                        '&:hover': { backgroundColor: isDark ? '#333' : '#f5f5f5' },
-                                                                    }}
-                                                                >
-                                                                    <CollectionIcon sx={{ fontSize: 12, color: isDark ? '#888' : '#666', mr: 0.5 }} />
-                                                                    <Typography sx={{ fontSize: '0.7rem', color: isDark ? '#ccc' : '#333' }}>
-                                                                        {collection}
-                                                                    </Typography>
-                                                                </Box>
-                                                            ))}
+                                                            {project.collections?.map((collection) => {
+                                                                const isActive = activeTab?.type === 'collection' && activeTab?.projectId === project.id && activeTab?.collectionPath === collection;
+                                                                const isMenuTarget = isMenuOpen && menuTarget?.menuType === 'collection' && menuTarget?.project?.id === project.id && menuTarget?.collection === collection;
+                                                                return (
+                                                                    <Box
+                                                                        key={collection}
+                                                                        onClick={() => onOpenCollection(project, collection)}
+                                                                        onContextMenu={(e) => handleContextMenu(e, { project, collection }, 'collection')}
+                                                                        sx={{
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            px: 1,
+                                                                            py: 0.3,
+                                                                            cursor: 'pointer',
+                                                                            backgroundColor: isMenuTarget ? (isDark ? '#444' : '#e0e0e0') : (isActive ? (isDark ? 'rgba(25, 118, 210, 0.3)' : '#bbdefb') : 'transparent'),
+                                                                            borderLeft: isActive ? '2px solid #1976d2' : '2px solid transparent',
+                                                                            '&:hover': { backgroundColor: isActive ? (isDark ? 'rgba(25, 118, 210, 0.3)' : '#bbdefb') : (isDark ? '#333' : '#f5f5f5') },
+                                                                        }}
+                                                                    >
+                                                                        <CollectionIcon sx={{ fontSize: 12, color: isActive ? '#1976d2' : (isDark ? '#888' : '#666'), mr: 0.5 }} />
+                                                                        <Typography sx={{ fontSize: '0.7rem', color: isActive ? '#1976d2' : (isDark ? '#ccc' : '#333'), fontWeight: isActive ? 600 : 400 }}>
+                                                                            {collection}
+                                                                        </Typography>
+                                                                    </Box>
+                                                                );
+                                                            })}
                                                             {(!project.collections || project.collections.length === 0) && (
                                                                 <Typography sx={{ fontSize: '0.7rem', color: isDark ? '#666' : '#999', px: 1, py: 0.3 }}>
                                                                     No collections
@@ -344,41 +403,55 @@ function ProjectSidebar({
                                                                 </Typography>
                                                             </Box>
                                                             {/* Storage */}
-                                                            <Box
-                                                                onClick={() => onOpenStorage?.(project)}
-                                                                sx={{
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    px: 1,
-                                                                    py: 0.3,
-                                                                    mt: 0.5,
-                                                                    cursor: 'pointer',
-                                                                    borderTop: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
-                                                                    '&:hover': { backgroundColor: isDark ? '#333' : '#f5f5f5' },
-                                                                }}
-                                                            >
-                                                                <StorageIcon sx={{ fontSize: 12, color: '#2196f3', mr: 0.5 }} />
-                                                                <Typography sx={{ fontSize: '0.7rem', color: isDark ? '#ccc' : '#333', fontWeight: 500 }}>
-                                                                    Storage
-                                                                </Typography>
-                                                            </Box>
+                                                            {(() => {
+                                                                const isStorageActive = activeTab?.type === 'storage' && activeTab?.projectId === project.id;
+                                                                return (
+                                                                    <Box
+                                                                        onClick={() => onOpenStorage?.(project)}
+                                                                        sx={{
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            px: 1,
+                                                                            py: 0.3,
+                                                                            mt: 0.5,
+                                                                            cursor: 'pointer',
+                                                                            borderTop: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
+                                                                            backgroundColor: isStorageActive ? (isDark ? 'rgba(33, 150, 243, 0.3)' : '#bbdefb') : 'transparent',
+                                                                            borderLeft: isStorageActive ? '2px solid #2196f3' : '2px solid transparent',
+                                                                            '&:hover': { backgroundColor: isStorageActive ? (isDark ? 'rgba(33, 150, 243, 0.3)' : '#bbdefb') : (isDark ? '#333' : '#f5f5f5') },
+                                                                        }}
+                                                                    >
+                                                                        <StorageIcon sx={{ fontSize: 12, color: '#2196f3', mr: 0.5 }} />
+                                                                        <Typography sx={{ fontSize: '0.7rem', color: isStorageActive ? '#2196f3' : (isDark ? '#ccc' : '#333'), fontWeight: isStorageActive ? 600 : 500 }}>
+                                                                            Storage
+                                                                        </Typography>
+                                                                    </Box>
+                                                                );
+                                                            })()}
                                                             {/* Authentication */}
-                                                            <Box
-                                                                onClick={() => onOpenAuth?.(project)}
-                                                                sx={{
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    px: 1,
-                                                                    py: 0.3,
-                                                                    cursor: 'pointer',
-                                                                    '&:hover': { backgroundColor: isDark ? '#333' : '#f5f5f5' },
-                                                                }}
-                                                            >
-                                                                <AuthIcon sx={{ fontSize: 12, color: '#9c27b0', mr: 0.5 }} />
-                                                                <Typography sx={{ fontSize: '0.7rem', color: isDark ? '#ccc' : '#333', fontWeight: 500 }}>
-                                                                    Authentication
-                                                                </Typography>
-                                                            </Box>
+                                                            {(() => {
+                                                                const isAuthActive = activeTab?.type === 'auth' && activeTab?.projectId === project.id;
+                                                                return (
+                                                                    <Box
+                                                                        onClick={() => onOpenAuth?.(project)}
+                                                                        sx={{
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            px: 1,
+                                                                            py: 0.3,
+                                                                            cursor: 'pointer',
+                                                                            backgroundColor: isAuthActive ? (isDark ? 'rgba(156, 39, 176, 0.3)' : '#e1bee7') : 'transparent',
+                                                                            borderLeft: isAuthActive ? '2px solid #9c27b0' : '2px solid transparent',
+                                                                            '&:hover': { backgroundColor: isAuthActive ? (isDark ? 'rgba(156, 39, 176, 0.3)' : '#e1bee7') : (isDark ? '#333' : '#f5f5f5') },
+                                                                        }}
+                                                                    >
+                                                                        <AuthIcon sx={{ fontSize: 12, color: '#9c27b0', mr: 0.5 }} />
+                                                                        <Typography sx={{ fontSize: '0.7rem', color: isAuthActive ? '#9c27b0' : (isDark ? '#ccc' : '#333'), fontWeight: isAuthActive ? 600 : 500 }}>
+                                                                            Authentication
+                                                                        </Typography>
+                                                                    </Box>
+                                                                );
+                                                            })()}
                                                         </Box>
                                                     </Collapse>
                                                 </Box>
@@ -398,6 +471,7 @@ function ProjectSidebar({
                                     {/* Project Header */}
                                     <Box
                                         onClick={() => toggleExpanded(project.id)}
+                                        onContextMenu={(e) => handleContextMenu(e, project, 'project')}
                                         sx={{
                                             display: 'flex',
                                             alignItems: 'center',
@@ -438,7 +512,16 @@ function ProjectSidebar({
                                         <IconButton
                                             size="small"
                                             onClick={(e) => handleMenu(e, project, 'project')}
-                                            sx={{ p: 0, opacity: 0.5, '&:hover': { opacity: 1 }, color: isDark ? '#aaa' : undefined }}
+                                            sx={{
+                                                p: 0.25,
+                                                opacity: 0.5,
+                                                '&:hover': {
+                                                    opacity: 1,
+                                                    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                                                },
+                                                color: isDark ? '#aaa' : undefined,
+                                                borderRadius: 1,
+                                            }}
                                         >
                                             <MoreVertIcon sx={{ fontSize: 16 }} />
                                         </IconButton>
@@ -448,33 +531,41 @@ function ProjectSidebar({
                                     <Collapse in={isExpanded}>
                                         <Box sx={{ pl: 2 }}>
                                             {/* Collections */}
-                                            {project.collections?.map((collection) => (
-                                                <Box
-                                                    key={collection}
-                                                    onClick={() => onOpenCollection(project, collection)}
-                                                    sx={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        px: 1,
-                                                        py: 0.4,
-                                                        cursor: 'pointer',
-                                                        '&:hover': { backgroundColor: isDark ? '#333' : '#f5f5f5' },
-                                                    }}
-                                                >
-                                                    <CollectionIcon sx={{ fontSize: 14, color: isDark ? '#888' : '#666', mr: 0.5 }} />
-                                                    <Typography
+                                            {project.collections?.map((collection) => {
+                                                const isActive = activeTab?.type === 'collection' && activeTab?.projectId === project.id && activeTab?.collectionPath === collection;
+                                                const isMenuTarget = isMenuOpen && menuTarget?.menuType === 'collection' && menuTarget?.project?.id === project.id && menuTarget?.collection === collection;
+                                                return (
+                                                    <Box
+                                                        key={collection}
+                                                        onClick={() => onOpenCollection(project, collection)}
+                                                        onContextMenu={(e) => handleContextMenu(e, { project, collection }, 'collection')}
                                                         sx={{
-                                                            fontSize: '0.75rem',
-                                                            color: isDark ? '#ccc' : '#333',
-                                                            overflow: 'hidden',
-                                                            textOverflow: 'ellipsis',
-                                                            whiteSpace: 'nowrap',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            px: 1,
+                                                            py: 0.4,
+                                                            cursor: 'pointer',
+                                                            backgroundColor: isMenuTarget ? (isDark ? '#444' : '#e0e0e0') : (isActive ? (isDark ? 'rgba(25, 118, 210, 0.3)' : '#bbdefb') : 'transparent'),
+                                                            borderLeft: isActive ? '2px solid #1976d2' : '2px solid transparent',
+                                                            '&:hover': { backgroundColor: isActive ? (isDark ? 'rgba(25, 118, 210, 0.3)' : '#bbdefb') : (isDark ? '#333' : '#f5f5f5') },
                                                         }}
                                                     >
-                                                        {collection}
-                                                    </Typography>
-                                                </Box>
-                                            ))}
+                                                        <CollectionIcon sx={{ fontSize: 14, color: isActive ? '#1976d2' : (isDark ? '#888' : '#666'), mr: 0.5 }} />
+                                                        <Typography
+                                                            sx={{
+                                                                fontSize: '0.75rem',
+                                                                color: isActive ? '#1976d2' : (isDark ? '#ccc' : '#333'),
+                                                                fontWeight: isActive ? 600 : 400,
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis',
+                                                                whiteSpace: 'nowrap',
+                                                            }}
+                                                        >
+                                                            {collection}
+                                                        </Typography>
+                                                    </Box>
+                                                );
+                                            })}
                                             {(!project.collections || project.collections.length === 0) && (
                                                 <Typography sx={{ fontSize: '0.75rem', color: isDark ? '#666' : '#999', px: 1, py: 0.5 }}>
                                                     No collections
@@ -505,54 +596,68 @@ function ProjectSidebar({
                                             </Box>
 
                                             {/* Storage */}
-                                            <Box
-                                                onClick={() => onOpenStorage?.(project)}
-                                                sx={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    px: 1,
-                                                    py: 0.4,
-                                                    mt: 0.5,
-                                                    cursor: 'pointer',
-                                                    borderTop: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
-                                                    '&:hover': { backgroundColor: isDark ? '#333' : '#f5f5f5' },
-                                                }}
-                                            >
-                                                <StorageIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5 }} />
-                                                <Typography
-                                                    sx={{
-                                                        fontSize: '0.75rem',
-                                                        color: isDark ? '#ccc' : '#333',
-                                                        fontWeight: 500,
-                                                    }}
-                                                >
-                                                    Storage
-                                                </Typography>
-                                            </Box>
+                                            {(() => {
+                                                const isStorageActive = activeTab?.type === 'storage' && activeTab?.projectId === project.id;
+                                                return (
+                                                    <Box
+                                                        onClick={() => onOpenStorage?.(project)}
+                                                        sx={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            px: 1,
+                                                            py: 0.4,
+                                                            mt: 0.5,
+                                                            cursor: 'pointer',
+                                                            borderTop: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
+                                                            backgroundColor: isStorageActive ? (isDark ? 'rgba(33, 150, 243, 0.3)' : '#bbdefb') : 'transparent',
+                                                            borderLeft: isStorageActive ? '2px solid #2196f3' : '2px solid transparent',
+                                                            '&:hover': { backgroundColor: isStorageActive ? (isDark ? 'rgba(33, 150, 243, 0.3)' : '#bbdefb') : (isDark ? '#333' : '#f5f5f5') },
+                                                        }}
+                                                    >
+                                                        <StorageIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5 }} />
+                                                        <Typography
+                                                            sx={{
+                                                                fontSize: '0.75rem',
+                                                                color: isStorageActive ? '#2196f3' : (isDark ? '#ccc' : '#333'),
+                                                                fontWeight: isStorageActive ? 600 : 500,
+                                                            }}
+                                                        >
+                                                            Storage
+                                                        </Typography>
+                                                    </Box>
+                                                );
+                                            })()}
 
                                             {/* Authentication */}
-                                            <Box
-                                                onClick={() => onOpenAuth?.(project)}
-                                                sx={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    px: 1,
-                                                    py: 0.4,
-                                                    cursor: 'pointer',
-                                                    '&:hover': { backgroundColor: isDark ? '#333' : '#f5f5f5' },
-                                                }}
-                                            >
-                                                <AuthIcon sx={{ fontSize: 14, color: '#9c27b0', mr: 0.5 }} />
-                                                <Typography
-                                                    sx={{
-                                                        fontSize: '0.75rem',
-                                                        color: isDark ? '#ccc' : '#333',
-                                                        fontWeight: 500,
-                                                    }}
-                                                >
-                                                    Authentication
-                                                </Typography>
-                                            </Box>
+                                            {(() => {
+                                                const isAuthActive = activeTab?.type === 'auth' && activeTab?.projectId === project.id;
+                                                return (
+                                                    <Box
+                                                        onClick={() => onOpenAuth?.(project)}
+                                                        sx={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            px: 1,
+                                                            py: 0.4,
+                                                            cursor: 'pointer',
+                                                            backgroundColor: isAuthActive ? (isDark ? 'rgba(156, 39, 176, 0.3)' : '#e1bee7') : 'transparent',
+                                                            borderLeft: isAuthActive ? '2px solid #9c27b0' : '2px solid transparent',
+                                                            '&:hover': { backgroundColor: isAuthActive ? (isDark ? 'rgba(156, 39, 176, 0.3)' : '#e1bee7') : (isDark ? '#333' : '#f5f5f5') },
+                                                        }}
+                                                    >
+                                                        <AuthIcon sx={{ fontSize: 14, color: '#9c27b0', mr: 0.5 }} />
+                                                        <Typography
+                                                            sx={{
+                                                                fontSize: '0.75rem',
+                                                                color: isAuthActive ? '#9c27b0' : (isDark ? '#ccc' : '#333'),
+                                                                fontWeight: isAuthActive ? 600 : 500,
+                                                            }}
+                                                        >
+                                                            Authentication
+                                                        </Typography>
+                                                    </Box>
+                                                );
+                                            })()}
                                         </Box>
                                     </Collapse>
                                 </Box>
@@ -592,9 +697,21 @@ function ProjectSidebar({
             {/* Context Menu */}
             <Menu
                 anchorEl={menuAnchor}
-                open={Boolean(menuAnchor)}
+                anchorReference={contextMenuPosition ? "anchorPosition" : "anchorEl"}
+                anchorPosition={contextMenuPosition}
+                open={isMenuOpen}
                 onClose={handleCloseMenu}
                 TransitionProps={{ onExited: handleMenuExited }}
+                sx={{
+                    '& .MuiMenuItem-root': {
+                        '&:hover': {
+                            backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                        },
+                    },
+                    '& .MuiPaper-root': {
+                        backgroundColor: isDark ? '#2d2d2d' : '#fff',
+                    },
+                }}
             >
                 {menuTarget?.menuType === 'account' ? (
                     // Google Account menu
@@ -603,6 +720,19 @@ function ProjectSidebar({
                             <Typography variant="caption" sx={{ color: '#888' }}>
                                 {menuTarget?.email}
                             </Typography>
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={async () => {
+                            // Close menu immediately
+                            const projectsToRefresh = menuTarget?.projects || [];
+                            handleCloseMenu();
+                            // Refresh collections for all projects under this account (silent mode)
+                            for (const project of projectsToRefresh) {
+                                await onRefreshCollections?.(project, true); // silent = true
+                            }
+                        }}>
+                            <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
+                            Refresh All Collections
                         </MenuItem>
                         <Divider />
                         <MenuItem onClick={() => {
@@ -630,6 +760,96 @@ function ProjectSidebar({
                             <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
                             Refresh Collections
                         </MenuItem>
+                        <MenuItem onClick={() => {
+                            onExportAllCollections?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><ExportIcon fontSize="small" /></ListItemIcon>
+                            Export All Collections
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={() => {
+                            onRevealInFirebaseConsole?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
+                            Reveal in Firebase Console
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onCopyProjectId?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><CopyIcon fontSize="small" /></ListItemIcon>
+                            Copy Project ID
+                        </MenuItem>
+                    </>
+                ) : menuTarget?.menuType === 'collection' ? (
+                    // Collection menu
+                    <>
+                        <MenuItem disabled sx={{ opacity: 1 }}>
+                            <Typography variant="caption" sx={{ color: '#888' }}>
+                                {menuTarget?.collection}
+                            </Typography>
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={() => {
+                            onAddDocument?.(menuTarget.project, menuTarget.collection);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><AddDocIcon fontSize="small" /></ListItemIcon>
+                            Add Document
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onRenameCollection?.(menuTarget.project, menuTarget.collection);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+                            Rename Collection
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onDeleteCollection?.(menuTarget.project, menuTarget.collection);
+                            handleCloseMenu();
+                        }} sx={{ color: 'error.main' }}>
+                            <ListItemIcon><DeleteIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+                            Delete Collection
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={() => {
+                            onExportCollection?.(menuTarget.project, menuTarget.collection);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><ExportIcon fontSize="small" /></ListItemIcon>
+                            Export Collection
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onEstimateDocCount?.(menuTarget.project, menuTarget.collection);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><NumbersIcon fontSize="small" /></ListItemIcon>
+                            Estimate Document Count
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={() => {
+                            onCopyCollectionId?.(menuTarget.collection);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><CopyIcon fontSize="small" /></ListItemIcon>
+                            Copy Collection ID
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onCopyResourcePath?.(menuTarget.project, menuTarget.collection);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><LinkIcon fontSize="small" /></ListItemIcon>
+                            Copy Resource Path
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onRevealCollectionInConsole?.(menuTarget.project, menuTarget.collection);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
+                            Reveal in Firebase Console
+                        </MenuItem>
                     </>
                 ) : (
                     // Service Account Project menu
@@ -647,6 +867,28 @@ function ProjectSidebar({
                         }}>
                             <ListItemIcon><RefreshIcon fontSize="small" /></ListItemIcon>
                             Refresh Collections
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onExportAllCollections?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><ExportIcon fontSize="small" /></ListItemIcon>
+                            Export All Collections
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem onClick={() => {
+                            onRevealInFirebaseConsole?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><OpenInNewIcon fontSize="small" /></ListItemIcon>
+                            Reveal in Firebase Console
+                        </MenuItem>
+                        <MenuItem onClick={() => {
+                            onCopyProjectId?.(menuTarget);
+                            handleCloseMenu();
+                        }}>
+                            <ListItemIcon><CopyIcon fontSize="small" /></ListItemIcon>
+                            Copy Project ID
                         </MenuItem>
                         <Divider />
                         <MenuItem onClick={() => {

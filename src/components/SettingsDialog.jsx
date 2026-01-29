@@ -125,6 +125,70 @@ function SettingsDialog({ open, onClose }) {
 
                 <Divider sx={{ my: 2 }} />
 
+                {/* Data Type Display Section */}
+                <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                    Data Type Display
+                </Typography>
+
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <FormControl size="small">
+                        <InputLabel>Timestamp Format</InputLabel>
+                        <Select
+                            value={settings.timestampFormat}
+                            label="Timestamp Format"
+                            onChange={(e) => updateSetting('timestampFormat', e.target.value)}
+                        >
+                            <MenuItem value="iso">ISO 8601 (2024-01-15T10:30:00Z)</MenuItem>
+                            <MenuItem value="local">Local (Jan 15, 2024 10:30 AM)</MenuItem>
+                            <MenuItem value="utc">UTC (Mon, 15 Jan 2024 10:30:00 GMT)</MenuItem>
+                            <MenuItem value="unix">Unix Timestamp (1705315800)</MenuItem>
+                            <MenuItem value="relative">Relative (2 hours ago)</MenuItem>
+                        </Select>
+                    </FormControl>
+
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                        <FormControl size="small" sx={{ minWidth: 180 }}>
+                            <InputLabel>Number Format</InputLabel>
+                            <Select
+                                value={settings.numberFormat}
+                                label="Number Format"
+                                onChange={(e) => updateSetting('numberFormat', e.target.value)}
+                            >
+                                <MenuItem value="auto">Auto (as-is)</MenuItem>
+                                <MenuItem value="fixed">Fixed Decimal</MenuItem>
+                                <MenuItem value="thousands">With Separators (1,234.56)</MenuItem>
+                                <MenuItem value="scientific">Scientific (1.23e+4)</MenuItem>
+                            </Select>
+                        </FormControl>
+                        {settings.numberFormat === 'fixed' && (
+                            <TextField
+                                label="Decimals"
+                                type="number"
+                                value={settings.numberDecimalPlaces}
+                                onChange={(e) => updateSetting('numberDecimalPlaces', Math.min(10, Math.max(0, parseInt(e.target.value) || 0)))}
+                                size="small"
+                                inputProps={{ min: 0, max: 10 }}
+                                sx={{ width: 90 }}
+                            />
+                        )}
+                    </Box>
+
+                    <FormControl size="small">
+                        <InputLabel>GeoPoint Format</InputLabel>
+                        <Select
+                            value={settings.geopointFormat}
+                            label="GeoPoint Format"
+                            onChange={(e) => updateSetting('geopointFormat', e.target.value)}
+                        >
+                            <MenuItem value="decimal">Decimal (37.7749, -122.4194)</MenuItem>
+                            <MenuItem value="dms">DMS (37°46'29.6"N 122°25'9.8"W)</MenuItem>
+                            <MenuItem value="compact">Compact (37.77,-122.42)</MenuItem>
+                        </Select>
+                    </FormControl>
+                </Box>
+
+                <Divider sx={{ my: 2 }} />
+
                 {/* Behavior Section */}
                 <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
                     Behavior

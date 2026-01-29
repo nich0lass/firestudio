@@ -16,7 +16,6 @@ import {
     Add as AddIcon,
     FileDownload as ExportIcon,
     FileUpload as ImportIcon,
-    Settings as SettingsIcon,
     ViewColumn as ColumnsIcon,
     Delete as DeleteIcon,
 } from '@mui/icons-material';
@@ -30,7 +29,6 @@ function ViewTabs({
     onImport,
     onAdd,
     onDelete,
-    onSettings,
     allFields,
     visibleFields,
     hiddenColumns,
@@ -151,7 +149,6 @@ function ViewTabs({
             <Tooltip title="Export"><IconButton size="small" onClick={onExport}><ExportIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
             <Tooltip title="Import"><IconButton size="small" onClick={onImport}><ImportIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
             <Tooltip title="Add"><IconButton size="small" onClick={onAdd}><AddIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
-            <Tooltip title="Settings"><IconButton size="small" onClick={onSettings}><SettingsIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
         </Box>
     );
 }
