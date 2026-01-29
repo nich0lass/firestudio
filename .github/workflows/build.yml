@@ -29,15 +29,12 @@ jobs:
 
       - name: Build Windows (unsigned)
         if: vars.ENABLE_CODE_SIGNING != 'true'
-        run: npm run build:win
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: npm run build && npx electron-builder --win --publish never
 
       - name: Build Windows (signed)
         if: vars.ENABLE_CODE_SIGNING == 'true'
-        run: npm run build:win
+        run: npm run build && npx electron-builder --win --publish never
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
@@ -72,15 +69,12 @@ jobs:
 
       - name: Build macOS (unsigned)
         if: vars.ENABLE_CODE_SIGNING != 'true'
-        run: npm run build:mac
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: npm run build && npx electron-builder --mac --publish never
 
       - name: Build macOS (signed)
         if: vars.ENABLE_CODE_SIGNING == 'true'
-        run: npm run build:mac
+        run: npm run build && npx electron-builder --mac --publish never
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           CSC_LINK: ${{ secrets.APPLE_CERTIFICATE }}
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -117,9 +111,7 @@ jobs:
           echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" >> .env
 
       - name: Build Linux
-        run: npm run build:linux
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: npm run build && npx electron-builder --linux --publish never
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -159,4 +151,4 @@ jobs:
             artifacts/mac-builds/*
             artifacts/linux-builds/*
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
