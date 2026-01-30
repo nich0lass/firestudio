@@ -71,7 +71,7 @@ Perfect for **Firebase developers**, **backend engineers**, **database administr
 - 🗑️ **Delete Users**: Remove users with confirmation
 - 📄 **User Details**: View full user info including providers and metadata
 
-### ⚡ Powerful Query Builder
+### ⚡ Powerful Query Builder with Smart Autocomplete
 ```javascript
 // Example JS Query
 async function run() {
@@ -84,6 +84,13 @@ async function run() {
     return query;
 }
 ```
+
+**Autocomplete Features:**
+- 🔮 **Progressive Completions**: Type `db.c`, `db.co`, or `db.col` → suggests `db.collection('')`
+- 📋 **Field Name Suggestions**: Your document fields auto-suggested in `.where()` and `.orderBy()`
+- 📂 **Collection Name Suggestions**: All your collections appear in suggestions
+- ⌨️ **Keyboard Navigation**: `Tab`/`Enter` to accept, `↑`/`↓` to navigate
+- ↩️ **Undo/Redo Support**: `Ctrl+Z` to undo, `Ctrl+Y` to redo
 
 ### 🎨 Customizable Interface
 - **Themes**: Dark mode, Light mode, or Auto (follows system)
